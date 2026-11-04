@@ -1,0 +1,6 @@
+{
+  "name": "BSEB Admit Card Data Extractor & Report Studio",
+  "description": "Upload Matric (10th) and Intermediate (+2) Admit Card PDFs or images to automatically extract student records and download formatted Excel (.xlsx) and PDF register reports.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

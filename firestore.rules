@@ -1,0 +1,203 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidInterSentUp(m) {
+      return m is map
+        && m.keys().hasAll([
+          'lang1Subject', 'lang1Marks', 'lang2Subject', 'lang2Marks',
+          'elective1Subject', 'elective1Theory', 'elective1Practical',
+          'elective2Subject', 'elective2Theory', 'elective2Practical',
+          'elective3Subject', 'elective3Theory', 'elective3Practical',
+          'additionalSubject', 'additionalTheory', 'additionalPractical',
+          'vocationalSubject', 'vocationalTheory', 'vocationalPractical',
+          'resultStatus'
+        ])
+        && m.keys().hasOnly([
+          'lang1Subject', 'lang1Marks', 'lang2Subject', 'lang2Marks',
+          'elective1Subject', 'elective1Theory', 'elective1Practical',
+          'elective2Subject', 'elective2Theory', 'elective2Practical',
+          'elective3Subject', 'elective3Theory', 'elective3Practical',
+          'additionalSubject', 'additionalTheory', 'additionalPractical',
+          'vocationalSubject', 'vocationalTheory', 'vocationalPractical',
+          'resultStatus'
+        ])
+        && m.lang1Subject is string && m.lang1Subject.size() <= 64
+        && m.lang1Marks is string && m.lang1Marks.size() <= 16
+        && m.lang2Subject is string && m.lang2Subject.size() <= 64
+        && m.lang2Marks is string && m.lang2Marks.size() <= 16
+        && m.elective1Subject is string && m.elective1Subject.size() <= 64
+        && m.elective1Theory is string && m.elective1Theory.size() <= 16
+        && m.elective1Practical is string && m.elective1Practical.size() <= 16
+        && m.elective2Subject is string && m.elective2Subject.size() <= 64
+        && m.elective2Theory is string && m.elective2Theory.size() <= 16
+        && m.elective2Practical is string && m.elective2Practical.size() <= 16
+        && m.elective3Subject is string && m.elective3Subject.size() <= 64
+        && m.elective3Theory is string && m.elective3Theory.size() <= 16
+        && m.elective3Practical is string && m.elective3Practical.size() <= 16
+        && m.additionalSubject is string && m.additionalSubject.size() <= 64
+        && m.additionalTheory is string && m.additionalTheory.size() <= 16
+        && m.additionalPractical is string && m.additionalPractical.size() <= 16
+        && m.vocationalSubject is string && m.vocationalSubject.size() <= 64
+        && m.vocationalTheory is string && m.vocationalTheory.size() <= 16
+        && m.vocationalPractical is string && m.vocationalPractical.size() <= 16
+        && m.resultStatus is string && m.resultStatus.size() <= 32;
+    }
+
+    function isValidMatricSentUp(m) {
+      return m is map
+        && m.keys().hasAll([
+          'milTheory', 'silTheory', 'matTheory', 'sciTheory', 'sscTheory',
+          'engTheory', 'optTheory', 'vocTheory', 'sciPractical',
+          'sscLitAct', 'sscPrWork', 'optPractical', 'vocPractical'
+        ])
+        && m.keys().hasOnly([
+          'milTheory', 'silTheory', 'matTheory', 'sciTheory', 'sscTheory',
+          'engTheory', 'optTheory', 'vocTheory', 'sciPractical',
+          'sscLitAct', 'sscPrWork', 'optPractical', 'vocPractical'
+        ])
+        && m.milTheory is string && m.milTheory.size() <= 16
+        && m.silTheory is string && m.silTheory.size() <= 16
+        && m.matTheory is string && m.matTheory.size() <= 16
+        && m.sciTheory is string && m.sciTheory.size() <= 16
+        && m.sscTheory is string && m.sscTheory.size() <= 16
+        && m.engTheory is string && m.engTheory.size() <= 16
+        && m.optTheory is string && m.optTheory.size() <= 16
+        && m.vocTheory is string && m.vocTheory.size() <= 16
+        && m.sciPractical is string && m.sciPractical.size() <= 16
+        && m.sscLitAct is string && m.sscLitAct.size() <= 16
+        && m.sscPrWork is string && m.sscPrWork.size() <= 16
+        && m.optPractical is string && m.optPractical.size() <= 16
+        && m.vocPractical is string && m.vocPractical.size() <= 16;
+    }
+
+    function isValidStudent(data) {
+      return data.keys().hasAll([
+          'ownerId', 'serialNo', 'examType', 'examYear', 'faculty',
+          'bsebUniqueId', 'schoolCode', 'schoolName', 'studentName',
+          'motherName', 'fatherName', 'dob', 'gender', 'maritalStatus',
+          'aadhaarNo', 'studentCategory', 'casteCategory', 'differentlyAbled',
+          'registrationNo', 'rollCode', 'rollNumber', 'examCenter',
+          'langSubject1', 'langSubject2', 'compulsorySubject1', 'compulsorySubject2',
+          'compulsorySubject3', 'compulsorySubject4', 'additionalSubject',
+          'allSubjectsSummary', 'sourceFileName', 'sourcePageNumber',
+          'extractionMethod', 'interSentUp', 'matricSentUp',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'serialNo', 'examType', 'examYear', 'faculty',
+          'bsebUniqueId', 'schoolCode', 'schoolName', 'studentName',
+          'motherName', 'fatherName', 'dob', 'gender', 'maritalStatus',
+          'aadhaarNo', 'studentCategory', 'casteCategory', 'differentlyAbled',
+          'registrationNo', 'rollCode', 'rollNumber', 'examCenter',
+          'langSubject1', 'langSubject2', 'compulsorySubject1', 'compulsorySubject2',
+          'compulsorySubject3', 'compulsorySubject4', 'additionalSubject',
+          'allSubjectsSummary', 'sourceFileName', 'sourcePageNumber',
+          'extractionMethod', 'interSentUp', 'matricSentUp',
+          'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerId == request.auth.uid
+        && data.serialNo is number && data.serialNo >= 0 && data.serialNo <= 100000
+        && data.examType is string && data.examType.size() <= 32 && (data.examType == 'MATRIC (10th)' || data.examType == 'INTERMEDIATE (+2)')
+        && data.examYear is string && data.examYear.size() <= 16
+        && data.faculty is string && data.faculty.size() <= 32 && (data.faculty == 'SECONDARY' || data.faculty == 'ARTS' || data.faculty == 'SCIENCE' || data.faculty == 'COMMERCE' || data.faculty == 'VOCATIONAL')
+        && data.bsebUniqueId is string && data.bsebUniqueId.size() <= 64
+        && data.schoolCode is string && data.schoolCode.size() <= 32
+        && data.schoolName is string && data.schoolName.size() <= 200
+        && data.studentName is string && data.studentName.size() <= 120
+        && data.motherName is string && data.motherName.size() <= 120
+        && data.fatherName is string && data.fatherName.size() <= 120
+        && data.dob is string && data.dob.size() <= 32
+        && data.gender is string && data.gender.size() <= 16 && (data.gender == 'MALE' || data.gender == 'FEMALE' || data.gender == 'OTHER')
+        && data.maritalStatus is string && data.maritalStatus.size() <= 32
+        && data.aadhaarNo is string && data.aadhaarNo.size() <= 32
+        && data.studentCategory is string && data.studentCategory.size() <= 32
+        && data.casteCategory is string && data.casteCategory.size() <= 32
+        && data.differentlyAbled is string && data.differentlyAbled.size() <= 32
+        && data.registrationNo is string && data.registrationNo.size() <= 64
+        && data.rollCode is string && data.rollCode.size() <= 32
+        && data.rollNumber is string && data.rollNumber.size() <= 32
+        && data.examCenter is string && data.examCenter.size() <= 200
+        && data.langSubject1 is string && data.langSubject1.size() <= 80
+        && data.langSubject2 is string && data.langSubject2.size() <= 80
+        && data.compulsorySubject1 is string && data.compulsorySubject1.size() <= 80
+        && data.compulsorySubject2 is string && data.compulsorySubject2.size() <= 80
+        && data.compulsorySubject3 is string && data.compulsorySubject3.size() <= 80
+        && data.compulsorySubject4 is string && data.compulsorySubject4.size() <= 80
+        && data.additionalSubject is string && data.additionalSubject.size() <= 80
+        && data.allSubjectsSummary is string && data.allSubjectsSummary.size() <= 500
+        && data.sourceFileName is string && data.sourceFileName.size() <= 200
+        && data.sourcePageNumber is number && data.sourcePageNumber >= 0 && data.sourcePageNumber <= 10000
+        && data.extractionMethod is string && data.extractionMethod.size() <= 32
+        && isValidInterSentUp(data.interSentUp)
+        && isValidMatricSentUp(data.matricSentUp)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /students/{studentId} {
+      allow get: if isVerifiedUser() && isValidId(studentId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(studentId)
+        && isValidStudent(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if (
+        isVerifiedUser()
+        && isValidId(studentId)
+        && isValidStudent(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: UpdateStudentAndMarks
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'serialNo', 'examType', 'examYear', 'faculty',
+            'bsebUniqueId', 'schoolCode', 'schoolName', 'studentName',
+            'motherName', 'fatherName', 'dob', 'gender', 'maritalStatus',
+            'aadhaarNo', 'studentCategory', 'casteCategory', 'differentlyAbled',
+            'registrationNo', 'rollCode', 'rollNumber', 'examCenter',
+            'langSubject1', 'langSubject2', 'compulsorySubject1', 'compulsorySubject2',
+            'compulsorySubject3', 'compulsorySubject4', 'additionalSubject',
+            'allSubjectsSummary', 'sourceFileName', 'sourcePageNumber',
+            'extractionMethod', 'interSentUp', 'matricSentUp', 'updatedAt'
+          ])
+        )
+      );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(studentId)
+        && existing().ownerId == request.auth.uid;
+    }
+  }
+}
