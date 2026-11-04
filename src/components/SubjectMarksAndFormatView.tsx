@@ -613,7 +613,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   }`}
                 >
                   {sheetTab !== 'CUSTOM_EXCEL' && <Check className="h-3 w-3" />}
-                  <span>{activeModule === 'INTERMEDIATE' ? '30-Col Panji' : '23-Col Panji'}</span>
+                  <span>{activeModule === 'INTERMEDIATE' ? '12th Marks Panji' : '10th Marks Panji'}</span>
                 </button>
                 <button
                   type="button"

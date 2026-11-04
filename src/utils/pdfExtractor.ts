@@ -7,7 +7,8 @@ import {
   PdfTextItem,
 } from './bsebParser';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  pdfWorkerUrl || `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 function cropCanvasRegion(
   sourceCanvas: HTMLCanvasElement,

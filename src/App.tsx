@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   GraduationCap,
   School,
+  Settings,
 } from 'lucide-react';
 import {
   AdmitCardRecord,
@@ -73,6 +74,7 @@ import { StudentDetailModal } from './components/StudentDetailModal';
 import { SummaryAnalyticsView } from './components/SummaryAnalyticsView';
 import { ManualEntryModal } from './components/ManualEntryModal';
 import { SubjectMarksAndFormatView } from './components/SubjectMarksAndFormatView';
+import { SettingsModal } from './components/SettingsModal';
 
 export type SchoolModule = 'INTERMEDIATE' | 'MATRIC';
 
@@ -83,6 +85,7 @@ export default function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AdmitCardRecord | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
 
@@ -152,10 +155,10 @@ export default function App() {
 
         unsubscribeFirestore = subscribeToUserStudents(user, (cloudRecords) => {
           setRecordsState((prev) => {
-            // Preserve in-memory photo/signature thumbnails if matching ID exists
+            const normalizeId = (id: string) => (id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
             const mediaById = new Map(
               prev.map((r) => [
-                r.id,
+                normalizeId(r.id),
                 {
                   photoDataUrl: r.photoDataUrl,
                   signatureDataUrl: r.signatureDataUrl,
@@ -163,10 +166,32 @@ export default function App() {
                 },
               ])
             );
-            return cloudRecords.map((cr) => ({
-              ...cr,
-              ...mediaById.get(cr.id),
-            }));
+
+            const recordMap = new Map<string, AdmitCardRecord>();
+
+            for (const cr of cloudRecords) {
+              const normKey = normalizeId(cr.id);
+              const media = mediaById.get(normKey) || mediaById.get(cr.id);
+              recordMap.set(normKey, {
+                ...cr,
+                id: normKey,
+                ...media,
+              });
+            }
+
+            for (const pr of prev) {
+              const normKey = normalizeId(pr.id);
+              if (!recordMap.has(normKey)) {
+                recordMap.set(normKey, {
+                  ...pr,
+                  id: normKey,
+                });
+              }
+            }
+
+            const uniqueRecords = Array.from(recordMap.values());
+            uniqueRecords.sort((a, b) => a.serialNo - b.serialNo);
+            return uniqueRecords.map((r, i) => ({ ...r, serialNo: i + 1 }));
           });
           setCloudStatus('synced');
         });
@@ -241,6 +266,8 @@ export default function App() {
     let totalExtractedInBatch = 0;
     const batchErrors: string[] = [];
 
+    setCurrentPage(1);
+
     setProgress({
       isExtracting: true,
       totalFiles: pdfOrImgFiles.length,
@@ -268,7 +295,26 @@ export default function App() {
               totalExtractedInBatch++;
               runningSerialNo++;
               batchRecords.push(latestRecord);
-              setRecordsState((prev) => [...prev, latestRecord]);
+
+              if (totalExtractedInBatch === 1) {
+                if (latestRecord.examType === 'MATRIC (10th)') {
+                  setActiveModule('MATRIC');
+                  setExportMode('BSEB_10TH_SENTUP');
+                } else if (latestRecord.examType === 'INTERMEDIATE (+2)') {
+                  setActiveModule('INTERMEDIATE');
+                  setExportMode('BSEB_12TH_SENTUP');
+                }
+              }
+
+              setRecordsState((prev) => {
+                const existingIdx = prev.findIndex((r) => r.id === latestRecord.id);
+                if (existingIdx !== -1) {
+                  const updated = [...prev];
+                  updated[existingIdx] = latestRecord;
+                  return updated;
+                }
+                return [...prev, latestRecord];
+              });
               if (auth.currentUser) {
                 upsertStudentInFirestore(latestRecord).catch(console.error);
               }
@@ -810,6 +856,18 @@ export default function App() {
                 <span>Add Student ({activeModule === 'INTERMEDIATE' ? '12th' : '10th'})</span>
               </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDrawerOpen(false);
+                  setIsSettingsOpen(true);
+                }}
+                className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-semibold bg-indigo-50 text-indigo-800 hover:bg-indigo-100"
+              >
+                <Settings className="h-4 w-4 text-indigo-600" />
+                <span>Marks Posting Settings & Tagging</span>
+              </button>
+
               {currentModuleRecords.length > 0 && (
                 <>
                   {activeModule === 'INTERMEDIATE' ? (
@@ -829,7 +887,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                        <span>Download 12th Excel (30 Cols)</span>
+                        <span>Download 12th Excel</span>
                       </button>
 
                       <button
@@ -845,7 +903,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileText className="h-4 w-4 text-indigo-900" />
-                        <span>Download 12th PDF (90° Rotated)</span>
+                        <span>Download 12th PDF</span>
                       </button>
 
                       <button
@@ -861,7 +919,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileText className="h-4 w-4 text-rose-700" />
-                        <span>Download Absent PDF (8 Cols)</span>
+                        <span>Download Absent PDF</span>
                       </button>
 
                       <button
@@ -893,7 +951,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileText className="h-4 w-4 text-purple-700" />
-                        <span>Download Vocational PDF (24 Cols)</span>
+                        <span>Download Vocational PDF</span>
                       </button>
 
                       <button
@@ -929,7 +987,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                        <span>Download 10th Excel (23 Cols)</span>
+                        <span>Download 10th Excel</span>
                       </button>
 
                       <button
@@ -945,7 +1003,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileText className="h-4 w-4 text-indigo-900" />
-                        <span>Download 10th PDF (90° Rotated)</span>
+                        <span>Download 10th PDF</span>
                       </button>
 
                       <button
@@ -961,7 +1019,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileText className="h-4 w-4 text-rose-700" />
-                        <span>Download Matric Absent PDF (24 Cols)</span>
+                        <span>Download Matric Absent PDF</span>
                       </button>
 
                       <button
@@ -993,7 +1051,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileText className="h-4 w-4 text-purple-700" />
-                        <span>Download Blind Sent-Up PDF (23 Cols)</span>
+                        <span>Download Blind Sent-Up PDF</span>
                       </button>
 
                       <button
@@ -1025,7 +1083,7 @@ export default function App() {
                         className="flex w-full items-center gap-3 rounded-full px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         <FileText className="h-4 w-4 text-amber-700" />
-                        <span>Download Blind Absent PDF (24 Cols)</span>
+                        <span>Download Blind Absent PDF</span>
                       </button>
 
                       <button
@@ -1176,6 +1234,16 @@ export default function App() {
               </button>
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            title="Practical & Random Marks Posting Settings"
+            className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full border border-indigo-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-50 shadow-2xs whitespace-nowrap shrink-0"
+          >
+            <Settings className="h-3.5 w-3.5 text-indigo-600" />
+            <span className="hidden sm:inline">Settings</span>
+          </button>
 
           <button
             type="button"
@@ -2155,6 +2223,20 @@ export default function App() {
           onAdd={handleAddManualRecord}
         />
       )}
+
+      <SettingsModal
+        records={records}
+        activeModule={activeModule}
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSwitchTab={setActiveTab}
+        onUpdateRecords={(updated) => {
+          setRecordsState(updated);
+          if (auth.currentUser) {
+            syncAllStudentsToFirestore(updated).catch(console.error);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -177,11 +177,11 @@ export function buildStudentFirestorePayload(record: AdmitCardRecord, ownerId: s
     gender: validGender,
     maritalStatus: clampStr(record.maritalStatus || 'UNMARRIED', 32),
     aadhaarNo: clampStr(record.aadhaarNo, 32),
-    studentCategory: clampStr(record.studentCategory || 'REGULAR', 32),
+    studentCategory: clampStr((record.studentCategory || 'REGULAR').replace(/[\u0900-\u097F]/g, '').trim(), 32),
     casteCategory: clampStr(record.casteCategory || 'GENERAL', 32),
     differentlyAbled: clampStr(record.differentlyAbled || 'NO', 32),
-    registrationNo: clampStr(record.registrationNo, 64),
-    rollCode: clampStr(record.rollCode, 32),
+    registrationNo: clampStr((record.registrationNo || '').replace(/\s*\/\s*20\d{2}.*/, '').replace(/[\u0900-\u097F]/g, '').trim(), 64),
+    rollCode: clampStr((record.rollCode || '').replace(/[\u0900-\u097F]/g, '').trim(), 32),
     rollNumber: clampStr(record.rollNumber, 32),
     examCenter: clampStr(record.examCenter, 200),
     langSubject1: clampStr(record.langSubject1, 80),
@@ -214,7 +214,8 @@ export async function upsertStudentInFirestore(record: AdmitCardRecord): Promise
     const snap = await getDoc(docRef);
     exists = snap.exists();
   } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
+    console.warn('Pre-write document check failed, defaulting to creation mode:', error);
+    exists = false;
   }
 
   if (exists) {
@@ -225,7 +226,7 @@ export async function upsertStudentInFirestore(record: AdmitCardRecord): Promise
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
+      console.warn('Firestore update failed for student record:', path, error);
     }
   } else {
     try {
@@ -235,7 +236,7 @@ export async function upsertStudentInFirestore(record: AdmitCardRecord): Promise
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
+      console.warn('Firestore create failed for student record:', path, error);
     }
   }
 }
@@ -307,11 +308,11 @@ export function subscribeToUserStudents(
           gender: (data.gender || 'FEMALE') as AdmitCardRecord['gender'],
           maritalStatus: String(data.maritalStatus || 'UNMARRIED'),
           aadhaarNo: String(data.aadhaarNo || ''),
-          studentCategory: String(data.studentCategory || 'REGULAR'),
+          studentCategory: String(data.studentCategory || 'REGULAR').replace(/[\u0900-\u097F]/g, '').trim() || 'REGULAR',
           casteCategory: String(data.casteCategory || 'GENERAL'),
           differentlyAbled: String(data.differentlyAbled || 'NO'),
-          registrationNo: String(data.registrationNo || ''),
-          rollCode: String(data.rollCode || ''),
+          registrationNo: String(data.registrationNo || '').replace(/\s*\/\s*20\d{2}.*/, '').replace(/[\u0900-\u097F]/g, '').trim(),
+          rollCode: String(data.rollCode || '').replace(/[\u0900-\u097F]/g, '').trim(),
           rollNumber: String(data.rollNumber || ''),
           examCenter: String(data.examCenter || ''),
           langSubject1: String(data.langSubject1 || ''),

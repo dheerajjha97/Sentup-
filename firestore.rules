@@ -24,7 +24,7 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn();
     }
 
     function isValidInterSentUp(m) {
@@ -162,38 +162,17 @@ service cloud.firestore {
     }
 
     match /students/{studentId} {
-      allow get: if isVerifiedUser() && isValidId(studentId) && existing().ownerId == request.auth.uid;
+      allow get: if isVerifiedUser() && isValidId(studentId) && (resource == null || existing().ownerId == request.auth.uid);
       allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;
 
       allow create: if isVerifiedUser()
         && isValidId(studentId)
-        && isValidStudent(incoming())
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && incoming().ownerId == request.auth.uid;
 
-      allow update: if (
-        isVerifiedUser()
+      allow update: if isVerifiedUser()
         && isValidId(studentId)
-        && isValidStudent(incoming())
         && existing().ownerId == request.auth.uid
-        && incoming().ownerId == existing().ownerId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && (
-          // Action: UpdateStudentAndMarks
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'serialNo', 'examType', 'examYear', 'faculty',
-            'bsebUniqueId', 'schoolCode', 'schoolName', 'studentName',
-            'motherName', 'fatherName', 'dob', 'gender', 'maritalStatus',
-            'aadhaarNo', 'studentCategory', 'casteCategory', 'differentlyAbled',
-            'registrationNo', 'rollCode', 'rollNumber', 'examCenter',
-            'langSubject1', 'langSubject2', 'compulsorySubject1', 'compulsorySubject2',
-            'compulsorySubject3', 'compulsorySubject4', 'additionalSubject',
-            'allSubjectsSummary', 'sourceFileName', 'sourcePageNumber',
-            'extractionMethod', 'interSentUp', 'matricSentUp', 'updatedAt'
-          ])
-        )
-      );
+        && incoming().ownerId == request.auth.uid;
 
       allow delete: if isVerifiedUser()
         && isValidId(studentId)

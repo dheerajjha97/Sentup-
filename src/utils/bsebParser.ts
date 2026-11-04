@@ -242,10 +242,15 @@ export function parseMatricTextItems(
     if (inferred) gender = inferred;
   }
 
-  const studentCategory = getTextInBox(581, 593, 135, 390) || 'REGULAR';
-  const registrationNo = getTextInBox(568, 580, 135, 390)
-    .replace(/\s*\/\s*/g, ' / ')
-    .replace(/\/\s*20\s+(\d{2})\b/, '/ 20$1');
+  const rawCategoryText = getTextInBox(581, 593, 135, 390);
+  const catMatch = rawCategoryText.match(/\b(REGULAR|EX|COMPARTMENTAL|IMPROVEMENT|PRIVATE)\b/i);
+  const studentCategory = catMatch ? catMatch[1].toUpperCase() : 'REGULAR';
+
+  const rawRegText = getTextInBox(568, 580, 135, 390);
+  const regMatch = rawRegText.match(/\b([A-Z0-9]{4,6}-\d{5}-\d{2})\b/i) || rawRegText.match(/\b(\d{5}-\d{5}-\d{2})\b/);
+  const registrationNo = regMatch
+    ? regMatch[1].toUpperCase()
+    : rawRegText.replace(/[\u0900-\u097F]/g, '').replace(/\s*\/\s*20\d{2}.*/, '').trim();
 
   // Right side of y=568..580 has "(a) जाति : BC (b) दिव्यांग कोटि : No"
   const casteAndDivyangRaw = getTextInBox(568, 580, 395, 590);
@@ -260,7 +265,11 @@ export function parseMatricTextItems(
     differentlyAbled = divMatch[1];
   }
 
-  const rollCode = getTextInBox(555, 567, 135, 390) || schoolCode;
+  const rawRollCodeText = getTextInBox(555, 567, 135, 390);
+  const rcMatch = rawRollCodeText.match(/\b(\d{5})\b/);
+  const rollCode = rcMatch
+    ? rcMatch[1]
+    : (schoolCode ? schoolCode.replace(/\D/g, '') : rawRollCodeText.replace(/[\u0900-\u097F]/g, '').trim());
   const rollNumberRaw = getTextInBox(555, 567, 395, 590);
   const rollNumber = rollNumberRaw.replace(/^.*:\s*/, '').trim() || 'xxxxxxxxx';
 
@@ -290,7 +299,7 @@ export function parseMatricTextItems(
   const allSubjects = [langSubject1, langSubject2, ...compList, additionalSubject].filter(Boolean);
 
   return {
-    id: `${fileName}-p${pageNumber}-${bsebUniqueId || serialNo}`,
+    id: `${fileName}-p${pageNumber}-${bsebUniqueId || serialNo}`.replace(/[^a-zA-Z0-9_-]/g, '_'),
     serialNo,
     examType: 'MATRIC (10th)',
     examYear,
@@ -519,7 +528,7 @@ export function parseInterOcrZones(
   ].filter(Boolean);
 
   return {
-    id: `${fileName}-p${pageNumber}-${bsebUniqueId || serialNo}`,
+    id: `${fileName}-p${pageNumber}-${bsebUniqueId || serialNo}`.replace(/[^a-zA-Z0-9_-]/g, '_'),
     serialNo,
     examType: 'INTERMEDIATE (+2)',
     examYear: '2027',
