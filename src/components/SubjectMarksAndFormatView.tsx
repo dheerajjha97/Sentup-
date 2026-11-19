@@ -1234,6 +1234,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. R-313370001-24"
                     value={activeStudent.registrationNo}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(activeStudent.id, 'registrationNo', e.target.value)
                     }
@@ -1250,6 +1251,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. ANISHA KUMARI"
                     value={activeStudent.studentName}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(
                         activeStudent.id,
@@ -1269,6 +1271,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. RAJ KUMAR SINGH"
                     value={activeStudent.fatherName}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(
                         activeStudent.id,
@@ -1288,6 +1291,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. PUTUL DEVI"
                     value={activeStudent.motherName}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(
                         activeStudent.id,
@@ -1350,6 +1354,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         list="bseb-inter-subjects-list"
                         value={activeInter.lang1Subject}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1367,7 +1372,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="0-100"
-                        value={activeInter.lang1Marks}
+                        value={activeInter.lang1Marks === '---' || activeInter.lang1Marks === '--' ? '' : activeInter.lang1Marks}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1387,6 +1393,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         list="bseb-inter-subjects-list"
                         value={activeInter.lang2Subject}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1403,7 +1410,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="0-100"
-                        value={activeInter.lang2Marks}
+                        value={activeInter.lang2Marks === '---' || activeInter.lang2Marks === '--' ? '' : activeInter.lang2Marks}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1433,6 +1441,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                       type="text"
                       list="bseb-inter-subjects-list"
                       value={activeInter.elective1Subject}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) =>
                         updateInterSentUpField(
                           activeStudent.id,
@@ -1450,7 +1459,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="Th."
-                        value={activeInter.elective1Theory}
+                        value={activeInter.elective1Theory === '---' || activeInter.elective1Theory === '--' ? '' : activeInter.elective1Theory}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1467,7 +1477,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="Pr."
-                        value={activeInter.elective1Practical}
+                        value={activeInter.elective1Practical === '---' || activeInter.elective1Practical === '--' ? '' : activeInter.elective1Practical}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1497,6 +1508,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                       type="text"
                       list="bseb-inter-subjects-list"
                       value={activeInter.elective2Subject}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) =>
                         updateInterSentUpField(
                           activeStudent.id,
@@ -1514,7 +1526,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="Th."
-                        value={activeInter.elective2Theory}
+                        value={activeInter.elective2Theory === '---' || activeInter.elective2Theory === '--' ? '' : activeInter.elective2Theory}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1531,7 +1544,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="Pr."
-                        value={activeInter.elective2Practical}
+                        value={activeInter.elective2Practical === '---' || activeInter.elective2Practical === '--' ? '' : activeInter.elective2Practical}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1561,6 +1575,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                       type="text"
                       list="bseb-inter-subjects-list"
                       value={activeInter.elective3Subject}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) =>
                         updateInterSentUpField(
                           activeStudent.id,
@@ -1578,7 +1593,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="Th."
-                        value={activeInter.elective3Theory}
+                        value={activeInter.elective3Theory === '---' || activeInter.elective3Theory === '--' ? '' : activeInter.elective3Theory}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1595,7 +1611,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="Pr."
-                        value={activeInter.elective3Practical}
+                        value={activeInter.elective3Practical === '---' || activeInter.elective3Practical === '--' ? '' : activeInter.elective3Practical}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1625,7 +1642,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                       type="text"
                       list="bseb-inter-subjects-list"
                       placeholder="---"
-                      value={activeInter.additionalSubject}
+                      value={activeInter.additionalSubject === '---' ? '' : activeInter.additionalSubject}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) =>
                         updateInterSentUpField(
                           activeStudent.id,
@@ -1643,7 +1661,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="---"
-                        value={activeInter.additionalTheory}
+                        value={activeInter.additionalTheory === '---' || activeInter.additionalTheory === '--' ? '' : activeInter.additionalTheory}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1660,7 +1679,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                         type="text"
                         inputMode="numeric"
                         placeholder="---"
-                        value={activeInter.additionalPractical}
+                        value={activeInter.additionalPractical === '---' || activeInter.additionalPractical === '--' ? '' : activeInter.additionalPractical}
+                        onFocus={(e) => e.target.select()}
                         onChange={(e) =>
                           updateInterSentUpField(
                             activeStudent.id,
@@ -1938,7 +1958,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="—"
                             aria-label={`Row ${idx + 1} Compulsory Subject 1 Marks`}
-                            value={s.lang1Marks}
+                            value={s.lang1Marks === '---' || s.lang1Marks === '--' ? '' : s.lang1Marks}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'lang1Marks', e.target.value)
                             }
@@ -1956,7 +1977,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="—"
                             aria-label={`Row ${idx + 1} Compulsory Subject 2 Marks`}
-                            value={s.lang2Marks}
+                            value={s.lang2Marks === '---' || s.lang2Marks === '--' ? '' : s.lang2Marks}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'lang2Marks', e.target.value)
                             }
@@ -1974,7 +1996,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="—"
                             aria-label={`Row ${idx + 1} Elective 1 Theory`}
-                            value={s.elective1Theory}
+                            value={s.elective1Theory === '---' || s.elective1Theory === '--' ? '' : s.elective1Theory}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'elective1Theory', e.target.value)
                             }
@@ -1987,7 +2010,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="0"
                             aria-label={`Row ${idx + 1} Elective 1 Practical`}
-                            value={s.elective1Practical}
+                            value={s.elective1Practical === '---' || s.elective1Practical === '--' ? '' : s.elective1Practical}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'elective1Practical', e.target.value)
                             }
@@ -2008,7 +2032,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="—"
                             aria-label={`Row ${idx + 1} Elective 2 Theory`}
-                            value={s.elective2Theory}
+                            value={s.elective2Theory === '---' || s.elective2Theory === '--' ? '' : s.elective2Theory}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'elective2Theory', e.target.value)
                             }
@@ -2021,7 +2046,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="0"
                             aria-label={`Row ${idx + 1} Elective 2 Practical`}
-                            value={s.elective2Practical}
+                            value={s.elective2Practical === '---' || s.elective2Practical === '--' ? '' : s.elective2Practical}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'elective2Practical', e.target.value)
                             }
@@ -2042,7 +2068,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="—"
                             aria-label={`Row ${idx + 1} Elective 3 Theory`}
-                            value={s.elective3Theory}
+                            value={s.elective3Theory === '---' || s.elective3Theory === '--' ? '' : s.elective3Theory}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'elective3Theory', e.target.value)
                             }
@@ -2055,7 +2082,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                             inputMode="numeric"
                             placeholder="0"
                             aria-label={`Row ${idx + 1} Elective 3 Practical`}
-                            value={s.elective3Practical}
+                            value={s.elective3Practical === '---' || s.elective3Practical === '--' ? '' : s.elective3Practical}
+                            onFocus={(e) => e.target.select()}
                             onChange={(e) =>
                               updateInterSentUpField(rec.id, 'elective3Practical', e.target.value)
                             }
@@ -2259,6 +2287,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. 51803-00001-25"
                     value={activeStudent.registrationNo}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(activeStudent.id, 'registrationNo', e.target.value)
                     }
@@ -2275,6 +2304,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. SIPANCHU KUMARI"
                     value={activeStudent.studentName}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(
                         activeStudent.id,
@@ -2294,6 +2324,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. RIBHA DEVI"
                     value={activeStudent.motherName}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(
                         activeStudent.id,
@@ -2313,6 +2344,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="e.g. AMRENDRA SINGH"
                     value={activeStudent.fatherName}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(
                         activeStudent.id,
@@ -2332,6 +2364,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     type="text"
                     placeholder="DD/MM/YYYY"
                     value={activeStudent.dob === 'N/A' ? '' : activeStudent.dob}
+                    onFocus={(e) => e.target.select()}
                     onChange={(e) =>
                       updateStudentField(activeStudent.id, 'dob', e.target.value)
                     }
@@ -2384,7 +2417,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                           type="text"
                           inputMode="numeric"
                           placeholder={fieldKey.startsWith('opt') || fieldKey.startsWith('voc') ? '---' : '0'}
-                          value={val}
+                          value={val === '---' || val === '--' ? '' : val}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) =>
                             updateMatricSentUpField(activeStudent.id, fieldKey, e.target.value)
                           }
@@ -2418,7 +2452,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                           type="text"
                           inputMode="numeric"
                           placeholder={fieldKey.startsWith('opt') || fieldKey.startsWith('voc') ? '---' : '0'}
-                          value={val}
+                          value={val === '---' || val === '--' ? '' : val}
+                          onFocus={(e) => e.target.select()}
                           onChange={(e) =>
                             updateMatricSentUpField(activeStudent.id, fieldKey, e.target.value)
                           }
@@ -2715,7 +2750,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                               inputMode="numeric"
                               placeholder="—"
                               aria-label={`Row ${idx + 1} ${label}`}
-                              value={val}
+                              value={val === '---' || val === '--' ? '' : val}
+                              onFocus={(e) => e.target.select()}
                               onChange={(e) =>
                                 updateMatricSentUpField(rec.id, fieldKey, e.target.value)
                               }
@@ -2740,7 +2776,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                               inputMode="numeric"
                               placeholder="—"
                               aria-label={`Row ${idx + 1} ${label}`}
-                              value={val}
+                              value={val === '---' || val === '--' ? '' : val}
+                              onFocus={(e) => e.target.select()}
                               onChange={(e) =>
                                 updateMatricSentUpField(rec.id, fieldKey, e.target.value)
                               }

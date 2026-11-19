@@ -25,6 +25,8 @@ import {
   GraduationCap,
   School,
   Settings,
+  Building2,
+  ClipboardCheck,
 } from 'lucide-react';
 import {
   AdmitCardRecord,
@@ -75,13 +77,15 @@ import { SummaryAnalyticsView } from './components/SummaryAnalyticsView';
 import { ManualEntryModal } from './components/ManualEntryModal';
 import { SubjectMarksAndFormatView } from './components/SubjectMarksAndFormatView';
 import { SettingsModal } from './components/SettingsModal';
+import { SchoolUniversalDashboard } from './components/SchoolUniversalDashboard';
+import { AttendanceSheetView } from './components/AttendanceSheetView';
 
 export type SchoolModule = 'INTERMEDIATE' | 'MATRIC';
 
 export default function App() {
   const [records, setRecordsState] = useState<AdmitCardRecord[]>([]);
   const [activeModule, setActiveModule] = useState<SchoolModule>('INTERMEDIATE');
-  const [activeTab, setActiveTab] = useState<'register' | 'marks' | 'analytics'>('register');
+  const [activeTab, setActiveTab] = useState<'register' | 'marks' | 'analytics' | 'dashboard' | 'attendance'>('dashboard');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AdmitCardRecord | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -589,7 +593,7 @@ export default function App() {
   );
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col bg-[#F4F6FB] text-[#191C20]">
+    <div className="h-screen overflow-hidden flex flex-col bg-[#F4F6FB] text-[#191C20] print:h-auto print:overflow-visible print:block print:bg-white">
       {/* Hidden File Inputs */}
       <input
         ref={fileInputRef}
@@ -623,7 +627,7 @@ export default function App() {
 
       {/* Flutter Material 3 Slide-Out Navigation Drawer */}
       {isDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex">
+        <div className="fixed inset-0 z-50 flex print:hidden">
           <div
             className="fixed inset-0 bg-slate-950/40 backdrop-blur-xs transition-opacity"
             onClick={() => setIsDrawerOpen(false)}
@@ -762,6 +766,24 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => {
+                  setActiveTab('dashboard');
+                  setIsDrawerOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-full px-4 py-2.5 text-xs font-semibold transition-colors ${
+                  activeTab === 'dashboard'
+                    ? 'bg-indigo-100 text-indigo-950'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <Building2 className="h-4 w-4 text-indigo-600" />
+                  <span>Universal School Dashboard</span>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   setActiveTab('register');
                   setIsDrawerOpen(false);
                 }}
@@ -795,6 +817,24 @@ export default function App() {
                 <span className="flex items-center gap-3">
                   <BookOpen className="h-4 w-4" />
                   <span>{activeModule === 'INTERMEDIATE' ? '12th Marks Panji' : '10th Marks Panji'}</span>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('attendance');
+                  setIsDrawerOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-full px-4 py-2.5 text-xs font-semibold transition-colors ${
+                  activeTab === 'attendance'
+                    ? 'bg-indigo-100 text-indigo-950'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <ClipboardCheck className="h-4 w-4 text-indigo-600" />
+                  <span>Attendance Sheet (Print)</span>
                 </span>
               </button>
 
@@ -1111,7 +1151,7 @@ export default function App() {
       )}
 
       {/* Flutter Material 3 Top AppBar (Mobile-First & Desktop-Second) */}
-      <header className="shrink-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-indigo-100 bg-white px-3 sm:px-6 shadow-2xs">
+      <header className="print:hidden shrink-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-indigo-100 bg-white px-3 sm:px-6 shadow-2xs">
         {/* Left: Hamburger Drawer Button + App Title */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
           <button
@@ -1273,10 +1313,10 @@ export default function App() {
 
 
       {/* Main Scrollable Scaffold Body */}
-      <div className="flex-1 overflow-y-auto">
-        <main id="top" className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 py-4 space-y-4">
+      <div className="flex-1 overflow-y-auto print:overflow-visible print:flex-none">
+        <main id="top" className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 py-4 space-y-4 print:max-w-none print:p-0 print:space-y-0">
         {authError && (
-          <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+          <div className="print:hidden flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
             <span>{authError}</span>
             <button
               type="button"
@@ -1290,7 +1330,7 @@ export default function App() {
 
         {/* Active Extraction Progress Banner */}
         {(progress.isExtracting || progress.statusMessage || progress.errors.length > 0) && (
-          <section className="rounded-2xl border border-indigo-100 bg-white px-4 py-3 shadow-xs space-y-2">
+          <section className="print:hidden rounded-2xl border border-indigo-100 bg-white px-4 py-3 shadow-xs space-y-2">
             {(progress.isExtracting || progress.statusMessage) && (
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1695,7 +1735,21 @@ export default function App() {
         )}
 
         {/* Main Screen Body */}
-        {activeTab === 'analytics' ? (
+        {activeTab === 'dashboard' ? (
+          <SchoolUniversalDashboard
+            records={records}
+            activeModule={activeModule}
+            onSwitchModule={handleSwitchModule}
+            onNavigateToMarks={() => setActiveTab('marks')}
+            onSelectStudentForEdit={setSelectedRecord}
+          />
+        ) : activeTab === 'attendance' ? (
+          <AttendanceSheetView
+            records={records}
+            activeModule={activeModule}
+            onTriggerAdmitCardUpload={() => fileInputRef.current?.click()}
+          />
+        ) : activeTab === 'analytics' ? (
           <SummaryAnalyticsView stats={stats} />
         ) : activeTab === 'marks' ? (
           <SubjectMarksAndFormatView
@@ -2134,15 +2188,38 @@ export default function App() {
       {/* Flutter Material 3 BottomNavigationBar */}
       <nav
         aria-label="Bottom Navigation Bar"
-        className="shrink-0 z-30 flex h-16 items-center justify-around border-t border-indigo-100 bg-white px-4 shadow-sm select-none"
+        className="print:hidden shrink-0 z-30 flex h-16 items-center justify-around border-t border-indigo-100 bg-white px-2 sm:px-4 shadow-sm select-none"
       >
         <button
           type="button"
-          onClick={() => setActiveTab('register')}
-          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none"
+          onClick={() => setActiveTab('dashboard')}
+          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none min-w-0"
         >
           <span
-            className={`flex h-8 w-16 items-center justify-center rounded-full transition-colors ${
+            className={`flex h-8 w-12 sm:w-16 items-center justify-center rounded-full transition-colors ${
+              activeTab === 'dashboard'
+                ? 'bg-indigo-100 text-indigo-950'
+                : 'text-slate-500 group-hover:bg-slate-100'
+            }`}
+          >
+            <Building2 className="h-4 w-4" />
+          </span>
+          <span
+            className={`text-[10px] sm:text-[11px] truncate ${
+              activeTab === 'dashboard' ? 'font-bold text-indigo-950' : 'font-medium text-slate-600'
+            }`}
+          >
+            Dashboard
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('register')}
+          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none min-w-0"
+        >
+          <span
+            className={`flex h-8 w-12 sm:w-16 items-center justify-center rounded-full transition-colors ${
               activeTab === 'register'
                 ? 'bg-indigo-100 text-indigo-950'
                 : 'text-slate-500 group-hover:bg-slate-100'
@@ -2151,21 +2228,21 @@ export default function App() {
             <FileText className="h-4 w-4" />
           </span>
           <span
-            className={`text-[11px] ${
+            className={`text-[10px] sm:text-[11px] truncate ${
               activeTab === 'register' ? 'font-bold text-indigo-950' : 'font-medium text-slate-600'
             }`}
           >
-            Admit Cards ({currentModuleRecords.length})
+            Admit ({currentModuleRecords.length})
           </span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('marks')}
-          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none"
+          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none min-w-0"
         >
           <span
-            className={`flex h-8 w-16 items-center justify-center rounded-full transition-colors ${
+            className={`flex h-8 w-12 sm:w-16 items-center justify-center rounded-full transition-colors ${
               activeTab === 'marks'
                 ? 'bg-indigo-100 text-indigo-950'
                 : 'text-slate-500 group-hover:bg-slate-100'
@@ -2174,21 +2251,44 @@ export default function App() {
             <BookOpen className="h-4 w-4" />
           </span>
           <span
-            className={`text-[11px] ${
+            className={`text-[10px] sm:text-[11px] truncate ${
               activeTab === 'marks' ? 'font-bold text-indigo-950' : 'font-medium text-slate-600'
             }`}
           >
-            Marks Panji ({activeModule === 'INTERMEDIATE' ? '12th' : '10th'})
+            Marks ({activeModule === 'INTERMEDIATE' ? '12th' : '10th'})
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('attendance')}
+          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none min-w-0"
+        >
+          <span
+            className={`flex h-8 w-12 sm:w-16 items-center justify-center rounded-full transition-colors ${
+              activeTab === 'attendance'
+                ? 'bg-indigo-100 text-indigo-950'
+                : 'text-slate-500 group-hover:bg-slate-100'
+            }`}
+          >
+            <ClipboardCheck className="h-4 w-4" />
+          </span>
+          <span
+            className={`text-[10px] sm:text-[11px] truncate ${
+              activeTab === 'attendance' ? 'font-bold text-indigo-950' : 'font-medium text-slate-600'
+            }`}
+          >
+            Attendance
           </span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('analytics')}
-          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none"
+          className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none min-w-0"
         >
           <span
-            className={`flex h-8 w-16 items-center justify-center rounded-full transition-colors ${
+            className={`flex h-8 w-12 sm:w-16 items-center justify-center rounded-full transition-colors ${
               activeTab === 'analytics'
                 ? 'bg-indigo-100 text-indigo-950'
                 : 'text-slate-500 group-hover:bg-slate-100'
@@ -2197,7 +2297,7 @@ export default function App() {
             <BarChart3 className="h-4 w-4" />
           </span>
           <span
-            className={`text-[11px] ${
+            className={`text-[10px] sm:text-[11px] truncate ${
               activeTab === 'analytics' ? 'font-bold text-indigo-950' : 'font-medium text-slate-600'
             }`}
           >

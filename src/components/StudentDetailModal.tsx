@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { X, Save, Check, User, FileText } from 'lucide-react';
 import { AdmitCardRecord, ExamType, FacultyType } from '../types/admitCard';
+import {
+  calculateStudentMarksSummary,
+  getEffectiveInterSentUp,
+  getEffectiveMatricSentUp,
+} from '../utils/marksAndFormat';
 
 interface StudentDetailModalProps {
   record: AdmitCardRecord;
@@ -359,87 +364,632 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               </div>
 
               <div>
-                <h3 className="text-xs font-semibold text-slate-900 pb-2 border-b border-slate-200">
-                  02. Registered Examination Subjects &amp; Marks Obtained
-                </h3>
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {(
-                    [
-                      ['langSubject1', 'Language Subject 1'],
-                      ['langSubject2', 'Language Subject 2'],
-                      ['compulsorySubject1', 'Compulsory / Elective 1'],
-                      ['compulsorySubject2', 'Compulsory / Elective 2'],
-                      ['compulsorySubject3', 'Compulsory / Elective 3'],
-                      ['compulsorySubject4', 'Compulsory 4 (Matric Eng)'],
-                      ['additionalSubject', 'Additional / Optional Subject'],
-                    ] as const
-                  ).map(([fieldKey, label]) => {
-                    const subjVal = formData[fieldKey] || '';
-                    const markVal = subjVal ? formData.subjectMarks?.[subjVal] || '' : '';
-                    return (
-                      <div
-                        key={fieldKey}
-                        className="grid grid-cols-12 gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5"
-                      >
-                        <div className="col-span-8">
-                          <label
-                            htmlFor={`edit-${fieldKey}`}
-                            className="block text-[11px] font-medium text-slate-700"
-                          >
-                            {label}
-                          </label>
-                          <input
-                            id={`edit-${fieldKey}`}
-                            type="text"
-                            value={subjVal}
-                            onChange={(e) => handleChange(fieldKey, e.target.value)}
-                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
-                          />
-                        </div>
-                        <div className="col-span-4">
-                          <label
-                            htmlFor={`edit-mark-${fieldKey}`}
-                            className="block text-[11px] font-medium text-slate-700"
-                          >
-                            Marks (0–100)
-                          </label>
-                          <input
-                            id={`edit-mark-${fieldKey}`}
-                            type="text"
-                            disabled={!subjVal.trim()}
-                            placeholder="Marks"
-                            value={markVal}
-                            onChange={(e) => {
-                              if (!subjVal.trim()) return;
-                              const val = e.target.value;
-                              setFormData((prev) => ({
-                                ...prev,
-                                subjectMarks: {
-                                  ...(prev.subjectMarks || {}),
-                                  [subjVal]: val,
-                                },
-                              }));
-                            }}
-                            className="mt-1 w-full rounded border border-slate-300 bg-white px-2.5 py-1 font-mono text-xs font-semibold tabular-nums text-slate-900 focus:border-slate-900 focus:outline-none disabled:bg-slate-100"
-                          />
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <h3 className="text-xs font-semibold text-slate-900">
+                    02. Individual Subject Marks &amp; Praptank Panji Correction ({formData.examType})
+                  </h3>
+                  <span className="text-[11px] font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+                    {(() => {
+                      const summary = calculateStudentMarksSummary(formData);
+                      return summary.enteredCount > 0
+                        ? `Total: ${summary.totalMarks}/500 (${summary.percentage} - ${summary.division})`
+                        : 'No Marks Entered Yet';
+                    })()}
+                  </span>
+                </div>
+
+                {formData.examType === 'INTERMEDIATE (+2)' ? (
+                  /* 12th Intermediate Detailed Marks Editor */
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Language 1 & 2 */}
+                      <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2">
+                        <span className="font-bold text-xs text-indigo-950 block">Compulsory Languages (100 Marks Each)</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 truncate">
+                              {formData.langSubject1 || '306-Hindi'}
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Marks"
+                              value={(() => {
+                                const v = formData.interSentUp?.lang1Marks ?? (formData.subjectMarks?.[formData.langSubject1 || '306-Hindi'] || '');
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const l1Name = formData.langSubject1 || '306-Hindi';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [l1Name]: val },
+                                    interSentUp: { ...eff, lang1Marks: val },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 truncate">
+                              {formData.langSubject2 || '305-English'}
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Marks"
+                              value={(() => {
+                                const v = formData.interSentUp?.lang2Marks ?? (formData.subjectMarks?.[formData.langSubject2 || '305-English'] || '');
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const l2Name = formData.langSubject2 || '305-English';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [l2Name]: val },
+                                    interSentUp: { ...eff, lang2Marks: val },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
 
-                  <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
-                    <label htmlFor="edit-remarks" className="block text-[11px] font-medium text-slate-700">
-                      Verification Remarks / Correction Note
-                    </label>
-                    <input
-                      id="edit-remarks"
-                      type="text"
-                      placeholder="e.g., Spelling verified, Photo verified"
-                      value={formData.remarks || ''}
-                      onChange={(e) => handleChange('remarks', e.target.value)}
-                      className="mt-1 w-full rounded border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
-                    />
+                      {/* Elective 1 */}
+                      <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2">
+                        <span className="font-bold text-xs text-indigo-950 block truncate">
+                          Elective 1: {formData.compulsorySubject1 || '117-PHYSICS'}
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Theory</label>
+                            <input
+                              type="text"
+                              placeholder="Theory"
+                              value={(() => {
+                                const v = formData.interSentUp?.elective1Theory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const thVal = e.target.value;
+                                const e1Name = formData.compulsorySubject1 || '117-PHYSICS';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  const prVal = eff.elective1Practical || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [e1Name]: String(tot) },
+                                    interSentUp: { ...eff, elective1Theory: thVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Practical</label>
+                            <input
+                              type="text"
+                              placeholder="Practical"
+                              value={(() => {
+                                const v = formData.interSentUp?.elective1Practical ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const prVal = e.target.value;
+                                const e1Name = formData.compulsorySubject1 || '117-PHYSICS';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  const thVal = eff.elective1Theory || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [e1Name]: String(tot) },
+                                    interSentUp: { ...eff, elective1Practical: prVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Elective 2 */}
+                      <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2">
+                        <span className="font-bold text-xs text-indigo-950 block truncate">
+                          Elective 2: {formData.compulsorySubject2 || '118-CHEMISTRY'}
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Theory</label>
+                            <input
+                              type="text"
+                              placeholder="Theory"
+                              value={(() => {
+                                const v = formData.interSentUp?.elective2Theory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const thVal = e.target.value;
+                                const e2Name = formData.compulsorySubject2 || '118-CHEMISTRY';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  const prVal = eff.elective2Practical || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [e2Name]: String(tot) },
+                                    interSentUp: { ...eff, elective2Theory: thVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Practical</label>
+                            <input
+                              type="text"
+                              placeholder="Practical"
+                              value={(() => {
+                                const v = formData.interSentUp?.elective2Practical ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const prVal = e.target.value;
+                                const e2Name = formData.compulsorySubject2 || '118-CHEMISTRY';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  const thVal = eff.elective2Theory || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [e2Name]: String(tot) },
+                                    interSentUp: { ...eff, elective2Practical: prVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Elective 3 */}
+                      <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2">
+                        <span className="font-bold text-xs text-indigo-950 block truncate">
+                          Elective 3: {formData.compulsorySubject3 || '119-BIOLOGY'}
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Theory</label>
+                            <input
+                              type="text"
+                              placeholder="Theory"
+                              value={(() => {
+                                const v = formData.interSentUp?.elective3Theory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const thVal = e.target.value;
+                                const e3Name = formData.compulsorySubject3 || '119-BIOLOGY';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  const prVal = eff.elective3Practical || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [e3Name]: String(tot) },
+                                    interSentUp: { ...eff, elective3Theory: thVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Practical</label>
+                            <input
+                              type="text"
+                              placeholder="Practical"
+                              value={(() => {
+                                const v = formData.interSentUp?.elective3Practical ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const prVal = e.target.value;
+                                const e3Name = formData.compulsorySubject3 || '119-BIOLOGY';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveInterSentUp(prev);
+                                  const thVal = eff.elective3Theory || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [e3Name]: String(tot) },
+                                    interSentUp: { ...eff, elective3Practical: prVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Additional Subject */}
+                      {formData.additionalSubject && formData.additionalSubject !== '---' && (
+                        <div className="col-span-1 sm:col-span-2 rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 space-y-2">
+                          <span className="font-bold text-xs text-indigo-950 block truncate">
+                            Additional Subject: {formData.additionalSubject}
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] font-semibold text-slate-600">Theory</label>
+                              <input
+                                type="text"
+                                placeholder="Theory"
+                                value={(() => {
+                                  const v = formData.interSentUp?.additionalTheory ?? '';
+                                  return v === '---' || v === '--' ? '' : v;
+                                })()}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) => {
+                                  const thVal = e.target.value;
+                                  const addName = formData.additionalSubject!;
+                                  setFormData((prev) => {
+                                    const eff = getEffectiveInterSentUp(prev);
+                                    const prVal = eff.additionalPractical || '';
+                                    const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                    return {
+                                      ...prev,
+                                      subjectMarks: { ...(prev.subjectMarks || {}), [addName]: String(tot) },
+                                      interSentUp: { ...eff, additionalTheory: thVal },
+                                    };
+                                  });
+                                }}
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-semibold text-slate-600">Practical</label>
+                              <input
+                                type="text"
+                                placeholder="Practical"
+                                value={(() => {
+                                  const v = formData.interSentUp?.additionalPractical ?? '';
+                                  return v === '---' || v === '--' ? '' : v;
+                                })()}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) => {
+                                  const prVal = e.target.value;
+                                  const addName = formData.additionalSubject!;
+                                  setFormData((prev) => {
+                                    const eff = getEffectiveInterSentUp(prev);
+                                    const thVal = eff.additionalTheory || '';
+                                    const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                    return {
+                                      ...prev,
+                                      subjectMarks: { ...(prev.subjectMarks || {}), [addName]: String(tot) },
+                                      interSentUp: { ...eff, additionalPractical: prVal },
+                                    };
+                                  });
+                                }}
+                                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-indigo-600 focus:outline-none"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
+                ) : (
+                  /* 10th Matric Detailed Marks Editor */
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* MIL, SIL, MAT, ENG */}
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 space-y-2 col-span-1 sm:col-span-2">
+                        <span className="font-bold text-xs text-emerald-950 block">Theory Subjects (100 Marks Each)</span>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 truncate">
+                              MIL: {formData.langSubject1 || 'HINDI'}
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="MIL Theory"
+                              value={(() => {
+                                const v = formData.matricSentUp?.milTheory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const milSubj = formData.langSubject1 || 'MIL - HINDI';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [milSubj]: val },
+                                    matricSentUp: { ...eff, milTheory: val },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 truncate">
+                              SIL: {formData.langSubject2 || 'SANSKRIT'}
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="SIL Theory"
+                              value={(() => {
+                                const v = formData.matricSentUp?.silTheory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const silSubj = formData.langSubject2 || 'SIL - SANSKRIT';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [silSubj]: val },
+                                    matricSentUp: { ...eff, silTheory: val },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 truncate">
+                              Mathematics
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Math Theory"
+                              value={(() => {
+                                const v = formData.matricSentUp?.matTheory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const matSubj = formData.compulsorySubject1 || 'MATHEMATICS';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [matSubj]: val },
+                                    matricSentUp: { ...eff, matTheory: val },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600 truncate">
+                              English (Matric)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Eng Theory"
+                              value={(() => {
+                                const v = formData.matricSentUp?.engTheory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const engSubj = formData.compulsorySubject4 || 'ENGLISH';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [engSubj]: val },
+                                    matricSentUp: { ...eff, engTheory: val },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Science: 80 Theory + 20 Practical */}
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 space-y-2">
+                        <span className="font-bold text-xs text-emerald-950 block">Science (80 Theory + 20 Practical)</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Theory (80)</label>
+                            <input
+                              type="text"
+                              placeholder="Sci Th"
+                              value={(() => {
+                                const v = formData.matricSentUp?.sciTheory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const thVal = e.target.value;
+                                const sciSubj = formData.compulsorySubject3 || 'SCIENCE';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  const prVal = eff.sciPractical || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [sciSubj]: String(tot) },
+                                    matricSentUp: { ...eff, sciTheory: thVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-600">Practical (20)</label>
+                            <input
+                              type="text"
+                              placeholder="Sci Pr"
+                              value={(() => {
+                                const v = formData.matricSentUp?.sciPractical ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const prVal = e.target.value;
+                                const sciSubj = formData.compulsorySubject3 || 'SCIENCE';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  const thVal = eff.sciTheory || '';
+                                  const tot = (Number(thVal) || 0) + (Number(prVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [sciSubj]: String(tot) },
+                                    matricSentUp: { ...eff, sciPractical: prVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Social Science: 80 Theory + 10 Literacy + 10 Project */}
+                      <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 space-y-2">
+                        <span className="font-bold text-xs text-emerald-950 block">Social Science (80 Th + 10 Lit + 10 Prj)</span>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-600">Theory (80)</label>
+                            <input
+                              type="text"
+                              placeholder="SSC Th"
+                              value={(() => {
+                                const v = formData.matricSentUp?.sscTheory ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const thVal = e.target.value;
+                                const sscSubj = formData.compulsorySubject2 || 'SOCIAL SCIENCE';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  const litVal = eff.sscLitAct || '';
+                                  const prjVal = eff.sscPrWork || '';
+                                  const tot = (Number(thVal) || 0) + (Number(litVal) || 0) + (Number(prjVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [sscSubj]: String(tot) },
+                                    matricSentUp: { ...eff, sscTheory: thVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-600">Literacy (10)</label>
+                            <input
+                              type="text"
+                              placeholder="Lit"
+                              value={(() => {
+                                const v = formData.matricSentUp?.sscLitAct ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const litVal = e.target.value;
+                                const sscSubj = formData.compulsorySubject2 || 'SOCIAL SCIENCE';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  const thVal = eff.sscTheory || '';
+                                  const prjVal = eff.sscPrWork || '';
+                                  const tot = (Number(thVal) || 0) + (Number(litVal) || 0) + (Number(prjVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [sscSubj]: String(tot) },
+                                    matricSentUp: { ...eff, sscLitAct: litVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-600">Project (10)</label>
+                            <input
+                              type="text"
+                              placeholder="Prj"
+                              value={(() => {
+                                const v = formData.matricSentUp?.sscPrWork ?? '';
+                                return v === '---' || v === '--' ? '' : v;
+                              })()}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const prjVal = e.target.value;
+                                const sscSubj = formData.compulsorySubject2 || 'SOCIAL SCIENCE';
+                                setFormData((prev) => {
+                                  const eff = getEffectiveMatricSentUp(prev);
+                                  const thVal = eff.sscTheory || '';
+                                  const litVal = eff.sscLitAct || '';
+                                  const tot = (Number(thVal) || 0) + (Number(litVal) || 0) + (Number(prjVal) || 0);
+                                  return {
+                                    ...prev,
+                                    subjectMarks: { ...(prev.subjectMarks || {}), [sscSubj]: String(tot) },
+                                    matricSentUp: { ...eff, sscPrWork: prjVal },
+                                  };
+                                });
+                              }}
+                              className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-emerald-600 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+                  <label htmlFor="edit-remarks" className="block text-[11px] font-medium text-slate-700">
+                    Verification Remarks / Correction Note
+                  </label>
+                  <input
+                    id="edit-remarks"
+                    type="text"
+                    placeholder="e.g., Marks manually corrected by administrator"
+                    value={formData.remarks || ''}
+                    onChange={(e) => handleChange('remarks', e.target.value)}
+                    className="mt-1 w-full rounded border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-900 focus:border-slate-900 focus:outline-none"
+                  />
                 </div>
               </div>
             </div>

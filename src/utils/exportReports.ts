@@ -3835,3 +3835,512 @@ export function exportToPdfReport(
   const dateStamp = new Date().toISOString().slice(0, 10);
   doc.save(`${filenamePrefix}_${records.length}_Students_${dateStamp}.pdf`);
 }
+
+export interface AttendanceSheetConfig {
+  examTitle: string;
+  examDate: string; // YYYY-MM-DD
+  sitting: string;
+  classLabel: string;
+  facultyLabel: string;
+  subjectLabel: string;
+  schoolCode: string;
+  schoolName: string;
+  roomNo?: string;
+  includePhoto: boolean;
+  studentsPerPage?: number; // 0 = continuous
+}
+
+function formatIsoDateForSheet(isoDate: string): string {
+  if (!isoDate) return '____/____/______';
+  const parts = isoDate.split('-');
+  if (parts.length !== 3) return isoDate;
+  const [y, m, d] = parts;
+  const dt = new Date(`${y}-${m}-${d}T00:00:00`);
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayName = Number.isNaN(dt.getTime()) ? '' : ` (${dayNames[dt.getDay()]})`;
+  return `${d}/${m}/${y}${dayName}`;
+}
+
+function sanitizeFileSegment(raw: string): string {
+  return (raw || 'All')
+    .replace(/[^a-zA-Z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'Sheet';
+}
+
+/**
+ * Generates an official A4 Portrait BSEB Subject, Date & Class-wise Exam Attendance Sheet PDF.
+ */
+export function exportAttendanceSheetPdf(
+  students: AdmitCardRecord[],
+  config: AttendanceSheetConfig
+): void {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+
+  const pageWidth = 210;
+  const marginX = 10;
+  const contentW = pageWidth - marginX * 2;
+  const formattedDate = formatIsoDateForSheet(config.examDate);
+  const perPage = config.studentsPerPage && config.studentsPerPage > 0 ? config.studentsPerPage : 0;
+
+  const chunks: Array<{ startIdx: number; rows: AdmitCardRecord[] }> = [];
+  if (perPage > 0 && students.length > 0) {
+    for (let i = 0; i < students.length; i += perPage) {
+      chunks.push({ startIdx: i, rows: students.slice(i, i + perPage) });
+    }
+  } else {
+    chunks.push({ startIdx: 0, rows: students });
+  }
+
+  chunks.forEach((chunk, chunkIdx) => {
+    if (chunkIdx > 0) {
+      doc.addPage();
+    }
+
+    const drawHeader = (batchIndex: number, totalBatches: number) => {
+      // Top Bordered Official Header
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.35);
+      doc.rect(marginX, 8, contentW, 18);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(15, 23, 42);
+      doc.text('BIHAR SCHOOL EXAMINATION BOARD, PATNA', pageWidth / 2, 13.5, { align: 'center' });
+
+      doc.setFontSize(9.5);
+      doc.text(
+        (config.examTitle || 'SENT-UP / TEST EXAMINATION').toUpperCase(),
+        pageWidth / 2,
+        18.5,
+        { align: 'center' }
+      );
+
+      doc.setFontSize(8.5);
+      doc.setTextColor(30, 41, 59);
+      const batchSuffix =
+        totalBatches > 1 ? `  |  SHEET ${batchIndex + 1} OF ${totalBatches}` : '';
+      doc.text(`EXAMINATION ATTENDANCE SHEET${batchSuffix}`, pageWidth / 2, 23.5, {
+        align: 'center',
+      });
+
+      // Metadata Grid Box
+      const metaY = 27.5;
+      const rowH = 6.5;
+      doc.setLineWidth(0.25);
+      doc.rect(marginX, metaY, contentW, rowH * 3);
+      doc.line(marginX, metaY + rowH, marginX + contentW, metaY + rowH);
+      doc.line(marginX, metaY + rowH * 2, marginX + contentW, metaY + rowH * 2);
+      const midX = marginX + contentW * 0.56;
+      doc.line(midX, metaY, midX, metaY + rowH * 3);
+
+      doc.setFontSize(7.8);
+      doc.setTextColor(15, 23, 42);
+
+      // Row 1
+      doc.setFont('helvetica', 'bold');
+      doc.text('School:', marginX + 2, metaY + 4.4);
+      doc.setFont('helvetica', 'normal');
+      const schoolDisplay = `${config.schoolCode ? `[${config.schoolCode}] ` : ''}${config.schoolName || 'All Schools'}`;
+      doc.text(schoolDisplay.slice(0, 50), marginX + 15, metaY + 4.4);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Exam Date:', midX + 2, metaY + 4.4);
+      doc.setFont('helvetica', 'normal');
+      doc.text(formattedDate, midX + 20, metaY + 4.4);
+
+      // Row 2
+      doc.setFont('helvetica', 'bold');
+      doc.text('Class & Stream:', marginX + 2, metaY + rowH + 4.4);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${config.classLabel}  |  ${config.facultyLabel}`, marginX + 26, metaY + rowH + 4.4);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Sitting:', midX + 2, metaY + rowH + 4.4);
+      doc.setFont('helvetica', 'normal');
+      doc.text((config.sitting || '1st Sitting').slice(0, 32), midX + 15, metaY + rowH + 4.4);
+
+      // Row 3
+      doc.setFont('helvetica', 'bold');
+      doc.text('Subject:', marginX + 2, metaY + rowH * 2 + 4.4);
+      doc.setFont('helvetica', 'bold');
+      doc.text((config.subjectLabel || 'All Subjects').slice(0, 48), marginX + 16, metaY + rowH * 2 + 4.4);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text('Room / Count:', midX + 2, metaY + rowH * 2 + 4.4);
+      doc.setFont('helvetica', 'normal');
+      const roomPart = config.roomNo?.trim() ? `Room ${config.roomNo.trim()}  |  ` : '';
+      doc.text(
+        `${roomPart}Candidates: ${chunk.rows.length}`,
+        midX + 24,
+        metaY + rowH * 2 + 4.4
+      );
+    };
+
+    drawHeader(chunkIdx, chunks.length);
+
+    const headRow = config.includePhoto
+      ? [
+          'Sl.',
+          'Photo',
+          'Roll Code / Roll No.\n& Reg. No.',
+          'BSEB\nUnique ID',
+          "Student's Name &\nFather's Name",
+          'Copy / OMR\nSl. No.',
+          'P / A',
+          "Candidate's\nSignature",
+        ]
+      : [
+          'Sl.',
+          'Roll Code / Roll No.\n& Reg. No.',
+          'BSEB\nUnique ID',
+          "Student's Name &\nFather's Name",
+          'Copy / OMR\nSl. No.',
+          'P / A',
+          "Candidate's\nSignature",
+        ];
+
+    const bodyRows = chunk.rows.map((rec, localIdx) => {
+      const globalSl = chunk.startIdx + localIdx + 1;
+      const rollLine =
+        rec.rollCode || rec.rollNumber
+          ? `${rec.rollCode || '-'} / ${rec.rollNumber || '-'}`
+          : '---';
+      const regLine = rec.registrationNo || '---';
+      const nameBlock = `${rec.studentName || '---'}\nF: ${rec.fatherName || '---'}`;
+
+      if (config.includePhoto) {
+        return [
+          String(globalSl),
+          '',
+          `${rollLine}\n${regLine}`,
+          rec.bsebUniqueId || '---',
+          nameBlock,
+          '',
+          '',
+          '',
+        ];
+      }
+      return [
+        String(globalSl),
+        `${rollLine}\n${regLine}`,
+        rec.bsebUniqueId || '---',
+        nameBlock,
+        '',
+        '',
+        '',
+      ];
+    });
+
+    const columnStyles: Record<number, Record<string, unknown>> = config.includePhoto
+      ? {
+          0: { cellWidth: 9, halign: 'center', fontStyle: 'bold' },
+          1: { cellWidth: 14, halign: 'center' },
+          2: { cellWidth: 33, fontSize: 6.8 },
+          3: { cellWidth: 22, halign: 'center', fontSize: 6.8 },
+          4: { cellWidth: 46, fontSize: 7.2 },
+          5: { cellWidth: 23, halign: 'center' },
+          6: { cellWidth: 11, halign: 'center' },
+          7: { cellWidth: 32, halign: 'center' },
+        }
+      : {
+          0: { cellWidth: 10, halign: 'center', fontStyle: 'bold' },
+          1: { cellWidth: 36, fontSize: 7 },
+          2: { cellWidth: 25, halign: 'center', fontSize: 7 },
+          3: { cellWidth: 51, fontSize: 7.4 },
+          4: { cellWidth: 24, halign: 'center' },
+          5: { cellWidth: 12, halign: 'center' },
+          6: { cellWidth: 32, halign: 'center' },
+        };
+
+    autoTable(doc, {
+      startY: 49,
+      margin: { left: marginX, right: marginX, top: 14, bottom: 26 },
+      head: [headRow],
+      body: bodyRows,
+      theme: 'grid',
+      styles: {
+        font: 'helvetica',
+        fontSize: 7.2,
+        cellPadding: 1.5,
+        valign: 'middle',
+        textColor: [15, 23, 42],
+        lineColor: [30, 41, 59],
+        lineWidth: 0.2,
+        minCellHeight: config.includePhoto ? 13.5 : 10,
+      },
+      headStyles: {
+        fillColor: [241, 245, 249],
+        textColor: [15, 23, 42],
+        fontStyle: 'bold',
+        fontSize: 7.2,
+        halign: 'center',
+        lineColor: [15, 23, 42],
+        lineWidth: 0.25,
+      },
+      columnStyles,
+      didDrawCell: (data) => {
+        if (config.includePhoto && data.section === 'body' && data.column.index === 1) {
+          const rec = chunk.rows[data.row.index];
+          if (rec?.photoDataUrl) {
+            try {
+              const imgW = 9.5;
+              const imgH = 11.2;
+              const x = data.cell.x + (data.cell.width - imgW) / 2;
+              const y = data.cell.y + (data.cell.height - imgH) / 2;
+              doc.addImage(rec.photoDataUrl, 'JPEG', x, y, imgW, imgH);
+            } catch {
+              // Ignore broken image embed
+            }
+          }
+        }
+      },
+    });
+
+    // Draw Summary & Signature Footer after this chunk's table
+    const finalY = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? 240;
+    let footerY = finalY + 5;
+    if (footerY > 266) {
+      doc.addPage();
+      footerY = 18;
+    }
+
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.25);
+    doc.rect(marginX, footerY, contentW, 8);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Total Allotted: ${chunk.rows.length}`, marginX + 4, footerY + 5.3);
+    doc.text('Total Present: ______________', marginX + 62, footerY + 5.3);
+    doc.text('Total Absent: ______________', marginX + 130, footerY + 5.3);
+
+    const signY = footerY + 21;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.line(marginX + 2, signY - 4, marginX + 66, signY - 4);
+    doc.text('Signature of Invigilator (with Date)', marginX + 34, signY, { align: 'center' });
+
+    doc.line(pageWidth - marginX - 72, signY - 4, pageWidth - marginX - 2, signY - 4);
+    doc.text('Centre Superintendent / Principal Signature & Seal', pageWidth - marginX - 37, signY, {
+      align: 'center',
+    });
+  });
+
+  // Page numbering footer on every page
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Attendance Sheet  |  ${config.classLabel}  |  ${config.subjectLabel}  |  Date: ${formattedDate}`,
+      marginX,
+      292
+    );
+    doc.text(`Page ${p} of ${totalPages}`, pageWidth - marginX, 292, { align: 'right' });
+  }
+
+  const classSlug = sanitizeFileSegment(config.classLabel.includes('10') ? '10th' : '12th');
+  const subjSlug = sanitizeFileSegment(config.subjectLabel);
+  const dateSlug = config.examDate || new Date().toISOString().slice(0, 10);
+  doc.save(`Attendance_${classSlug}_${subjSlug}_${dateSlug}.pdf`);
+}
+
+/**
+ * Generates and downloads a formatted Excel (.xlsx) Attendance Sheet for the selected Class, Subject & Date.
+ */
+export function exportAttendanceSheetExcel(
+  students: AdmitCardRecord[],
+  config: AttendanceSheetConfig
+): void {
+  const formattedDate = formatIsoDateForSheet(config.examDate);
+  const schoolDisplay = `${config.schoolCode ? `[${config.schoolCode}] ` : ''}${config.schoolName || 'All Schools'}`;
+
+  const aoa: Array<Array<string | number>> = [
+    ['BIHAR SCHOOL EXAMINATION BOARD, PATNA'],
+    [`${(config.examTitle || 'SENT-UP / TEST EXAMINATION').toUpperCase()} — ATTENDANCE SHEET`],
+    [
+      `School: ${schoolDisplay}`,
+      '',
+      '',
+      '',
+      `Exam Date: ${formattedDate}`,
+      '',
+      '',
+      '',
+    ],
+    [
+      `Class: ${config.classLabel} (${config.facultyLabel})`,
+      '',
+      '',
+      '',
+      `Sitting: ${config.sitting}`,
+      '',
+      '',
+      '',
+    ],
+    [
+      `Subject: ${config.subjectLabel}`,
+      '',
+      '',
+      '',
+      `Room / Hall: ${config.roomNo?.trim() || '_______'}   |   Total Allotted: ${students.length}`,
+      '',
+      '',
+      '',
+    ],
+    [
+      'SL. NO.',
+      'ROLL CODE / ROLL NO.',
+      'REGISTRATION NO.',
+      'BSEB UNIQUE ID',
+      "STUDENT'S NAME",
+      "FATHER'S NAME",
+      'COPY / OMR SL. NO.',
+      'P / A',
+      "CANDIDATE'S SIGNATURE",
+    ],
+  ];
+
+  students.forEach((rec, idx) => {
+    const rollInfo =
+      rec.rollCode || rec.rollNumber
+        ? `${rec.rollCode || '-'} / ${rec.rollNumber || '-'}`
+        : '---';
+    aoa.push([
+      idx + 1,
+      rollInfo,
+      rec.registrationNo || '---',
+      rec.bsebUniqueId || '---',
+      rec.studentName || '---',
+      rec.fatherName || '---',
+      '',
+      '',
+      '',
+    ]);
+  });
+
+  aoa.push([]);
+  aoa.push([
+    `Total Allotted: ${students.length}`,
+    '',
+    '',
+    'Total Present: ___________',
+    '',
+    '',
+    'Total Absent: ___________',
+    '',
+    '',
+  ]);
+  aoa.push([]);
+  aoa.push([
+    'Invigilator Signature & Date: _______________________',
+    '',
+    '',
+    '',
+    '',
+    'Principal / Centre Supt. Signature & Seal: _______________________',
+    '',
+    '',
+    '',
+  ]);
+
+  const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
+  const summaryRowIdx = 6 + students.length + 1;
+  const signRowIdx = summaryRowIdx + 2;
+
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 3 } },
+    { s: { r: 2, c: 4 }, e: { r: 2, c: 8 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 3 } },
+    { s: { r: 3, c: 4 }, e: { r: 3, c: 8 } },
+    { s: { r: 4, c: 0 }, e: { r: 4, c: 3 } },
+    { s: { r: 4, c: 4 }, e: { r: 4, c: 8 } },
+    { s: { r: summaryRowIdx, c: 0 }, e: { r: summaryRowIdx, c: 2 } },
+    { s: { r: summaryRowIdx, c: 3 }, e: { r: summaryRowIdx, c: 5 } },
+    { s: { r: summaryRowIdx, c: 6 }, e: { r: summaryRowIdx, c: 8 } },
+    { s: { r: signRowIdx, c: 0 }, e: { r: signRowIdx, c: 4 } },
+    { s: { r: signRowIdx, c: 5 }, e: { r: signRowIdx, c: 8 } },
+  ];
+
+  ws['!cols'] = [
+    { wch: 7 },
+    { wch: 18 },
+    { wch: 20 },
+    { wch: 17 },
+    { wch: 24 },
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 8 },
+    { wch: 24 },
+  ];
+
+  ws['!rows'] = [
+    { hpt: 22 },
+    { hpt: 20 },
+    { hpt: 18 },
+    { hpt: 18 },
+    { hpt: 18 },
+    { hpt: 26 },
+    ...students.map(() => ({ hpt: 26 })),
+  ];
+
+  const lastDataRow = 5 + students.length;
+  for (let r = 0; r <= signRowIdx; r++) {
+    for (let c = 0; c <= 8; c++) {
+      const addr = XLSXStyle.utils.encode_cell({ r, c });
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+
+      if (r === 0 || r === 1) {
+        ws[addr].s = {
+          font: { name: 'Arial', sz: r === 0 ? 13 : 11, bold: true, color: { rgb: '0F172A' } },
+          alignment: { horizontal: 'center', vertical: 'center' },
+        };
+      } else if (r >= 2 && r <= 4) {
+        ws[addr].s = {
+          font: { name: 'Arial', sz: 10, bold: r === 4 && c < 4, color: { rgb: '0F172A' } },
+          alignment: { horizontal: 'left', vertical: 'center' },
+          border: BORDER_THIN_BLACK,
+        };
+      } else if (r === 5) {
+        ws[addr].s = {
+          font: { name: 'Arial', sz: 9, bold: true, color: { rgb: '0F172A' } },
+          fill: { fgColor: { rgb: 'F1F5F9' } },
+          alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+          border: BORDER_THIN_BLACK,
+        };
+      } else if (r >= 6 && r <= lastDataRow) {
+        ws[addr].s = {
+          font: { name: 'Arial', sz: 9.5, bold: c === 0 || c === 4, color: { rgb: '0F172A' } },
+          alignment: {
+            horizontal: c === 4 || c === 5 ? 'left' : 'center',
+            vertical: 'center',
+            wrapText: true,
+          },
+          border: BORDER_THIN_BLACK,
+        };
+      } else if (r === summaryRowIdx || r === signRowIdx) {
+        ws[addr].s = {
+          font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '0F172A' } },
+          alignment: { horizontal: 'left', vertical: 'center' },
+        };
+      }
+    }
+  }
+
+  const wb = XLSXStyle.utils.book_new();
+  XLSXStyle.utils.book_append_sheet(wb, ws, 'Attendance_Sheet');
+  const classSlug = sanitizeFileSegment(config.classLabel.includes('10') ? '10th' : '12th');
+  const subjSlug = sanitizeFileSegment(config.subjectLabel);
+  const dateSlug = config.examDate || new Date().toISOString().slice(0, 10);
+  XLSXStyle.writeFile(wb, `Attendance_${classSlug}_${subjSlug}_${dateSlug}.xlsx`);
+}
+
