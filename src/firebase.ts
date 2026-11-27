@@ -32,7 +32,10 @@ import {
   TeacherAssignment,
 } from './types/admitCard';
 import { getEffectiveInterSentUp, getEffectiveMatricSentUp } from './utils/marksAndFormat';
-import { computeAssignedTeacherEmailsForStudent } from './utils/teacherSubjectMatcher';
+import {
+  computeAssignedTeacherEmailsForStudent,
+  normalizeSchoolCode,
+} from './utils/teacherSubjectMatcher';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -454,12 +457,14 @@ export async function saveTeacherAssignmentInFirestore(
     throw new Error('Select at least one subject.');
   }
 
+  const cleanSchoolCode = normalizeSchoolCode(input.schoolCode) || clampStr(input.schoolCode.trim(), 32);
+
   const payload = {
     ownerId: clampStr(currentUser.uid, 128),
     ownerEmail: clampStr((currentUser.email || 'admin@school.local').toLowerCase(), 160),
     teacherName: clampStr(input.teacherName || 'Subject Teacher', 120),
     teacherEmail: clampStr(input.teacherEmail.trim().toLowerCase(), 160),
-    schoolCode: clampStr(input.schoolCode.trim(), 32),
+    schoolCode: clampStr(cleanSchoolCode, 32),
     schoolName: clampStr(input.schoolName.trim(), 200),
     assignedClasses: cleanClasses,
     assignedSubjects: cleanSubjects,
@@ -616,7 +621,8 @@ export function subscribeToOwnerTeacherAssignments(
  */
 export function subscribeToMyTeacherAssignments(
   user: User,
-  onData: (assignments: TeacherAssignment[]) => void
+  onData: (assignments: TeacherAssignment[]) => void,
+  onError?: (message: string) => void
 ): () => void {
   const email = (user.email || '').trim().toLowerCase();
   if (!email) {
@@ -634,6 +640,8 @@ export function subscribeToMyTeacherAssignments(
       onData(list);
     },
     (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
       handleFirestoreError(error, OperationType.LIST, 'teacherAssignments');
     }
   );
@@ -644,7 +652,8 @@ export function subscribeToMyTeacherAssignments(
  */
 export function subscribeToTeacherAssignedStudents(
   user: User,
-  onData: (records: AdmitCardRecord[]) => void
+  onData: (records: AdmitCardRecord[]) => void,
+  onError?: (message: string) => void
 ): () => void {
   const email = (user.email || '').trim().toLowerCase();
   if (!email) {
@@ -666,6 +675,8 @@ export function subscribeToTeacherAssignedStudents(
       onData(loaded);
     },
     (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
       handleFirestoreError(error, OperationType.LIST, 'students');
     }
   );

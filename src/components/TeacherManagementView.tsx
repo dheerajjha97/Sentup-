@@ -22,6 +22,7 @@ import { User } from '../firebase';
 import {
   canonicalSubjectKey,
   getRecordSubjectList,
+  normalizeSchoolCode,
   studentMatchesAssignedSubject,
 } from '../utils/teacherSubjectMatcher';
 
@@ -79,7 +80,7 @@ export const TeacherManagementView: React.FC<TeacherManagementViewProps> = ({
   const availableSchools = useMemo(() => {
     const map = new Map<string, { code: string; name: string; count10: number; count12: number }>();
     records.forEach((r) => {
-      const code = (r.schoolCode || r.rollCode || '').trim();
+      const code = normalizeSchoolCode(r.schoolCode, r.rollCode);
       if (!code) return;
       const name = (r.schoolName || `School ${code}`).trim();
       const prev = map.get(code) || { code, name, count10: 0, count12: 0 };
@@ -120,10 +121,10 @@ export const TeacherManagementView: React.FC<TeacherManagementViewProps> = ({
 
   // Dynamic subjects available for the selected School Code and Classes
   const subjectCatalogByClass = useMemo(() => {
-    const cleanSchool = schoolCode.trim().toUpperCase();
+    const cleanSchool = normalizeSchoolCode(schoolCode);
     const schoolRecs = cleanSchool
       ? records.filter(
-          (r) => (r.schoolCode || r.rollCode || '').trim().toUpperCase() === cleanSchool
+          (r) => normalizeSchoolCode(r.schoolCode, r.rollCode) === cleanSchool
         )
       : records;
 
@@ -163,10 +164,10 @@ export const TeacherManagementView: React.FC<TeacherManagementViewProps> = ({
 
   // Preview count of currently loaded students matching this form
   const matchedStudentPreviewCount = useMemo(() => {
-    const cleanSchool = schoolCode.trim().toUpperCase();
+    const cleanSchool = normalizeSchoolCode(schoolCode);
     if (!cleanSchool || assignedClasses.length === 0 || assignedSubjects.length === 0) return 0;
     return records.filter((rec) => {
-      const recSchool = (rec.schoolCode || rec.rollCode || '').trim().toUpperCase();
+      const recSchool = normalizeSchoolCode(rec.schoolCode, rec.rollCode);
       if (recSchool !== cleanSchool) return false;
       if (!assignedClasses.includes(rec.examType)) return false;
       return assignedSubjects.some((subj) => studentMatchesAssignedSubject(rec, subj));
@@ -779,14 +780,20 @@ export const TeacherManagementView: React.FC<TeacherManagementViewProps> = ({
           ) : (
             <div className="divide-y divide-slate-100">
               {filteredAssignments.map((item) => {
-                const matchedCount = records.filter((rec) => {
-                  const recSchool = (rec.schoolCode || rec.rollCode || '').trim().toUpperCase();
-                  if (recSchool !== item.schoolCode.trim().toUpperCase()) return false;
+                const normAssignSchool = normalizeSchoolCode(item.schoolCode);
+                const cleanEmail = item.teacherEmail.trim().toLowerCase();
+                const matchedStudents = records.filter((rec) => {
+                  const recSchool = normalizeSchoolCode(rec.schoolCode, rec.rollCode);
+                  if (recSchool !== normAssignSchool) return false;
                   if (!item.assignedClasses.includes(rec.examType)) return false;
                   return item.assignedSubjects.some((subj) =>
                     studentMatchesAssignedSubject(rec, subj)
                   );
-                }).length;
+                });
+                const matchedCount = matchedStudents.length;
+                const syncedCount = matchedStudents.filter((rec) =>
+                  (rec.assignedTeacherEmails || []).includes(cleanEmail)
+                ).length;
 
                 return (
                   <div
@@ -818,6 +825,15 @@ export const TeacherManagementView: React.FC<TeacherManagementViewProps> = ({
                           .map((c) => (c === 'MATRIC (10th)' ? '10th' : '12th'))
                           .join(' & ')}{' '}
                         · {matchedCount} Students
+                        {item.active && matchedCount > 0 && (
+                          <span
+                            className={`ml-1.5 font-semibold ${
+                              syncedCount === matchedCount ? 'text-emerald-700' : 'text-amber-700'
+                            }`}
+                          >
+                            ({syncedCount}/{matchedCount} Synced)
+                          </span>
+                        )}
                       </div>
 
                       <div className="text-xs text-slate-800">

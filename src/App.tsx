@@ -89,6 +89,7 @@ import { SchoolUniversalDashboard } from './components/SchoolUniversalDashboard'
 import { AttendanceSheetView } from './components/AttendanceSheetView';
 import { TeacherManagementView } from './components/TeacherManagementView';
 import { TeacherMarksPortal } from './components/TeacherMarksPortal';
+import { computeAssignedTeacherEmailsForStudent } from './utils/teacherSubjectMatcher';
 
 export type SchoolModule = 'INTERMEDIATE' | 'MATRIC';
 
@@ -102,6 +103,8 @@ export default function App() {
   const [ownerAssignments, setOwnerAssignments] = useState<TeacherAssignment[]>([]);
   const [myTeacherAssignments, setMyTeacherAssignments] = useState<TeacherAssignment[]>([]);
   const [teacherAssignedStudents, setTeacherAssignedStudents] = useState<AdmitCardRecord[]>([]);
+  const [teacherStudentsLoading, setTeacherStudentsLoading] = useState<boolean>(false);
+  const [teacherStudentsError, setTeacherStudentsError] = useState<string>('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AdmitCardRecord | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -153,6 +156,7 @@ export default function App() {
   const ownerAssignmentsRef = useRef<TeacherAssignment[]>(ownerAssignments);
   ownerAssignmentsRef.current = ownerAssignments;
   const hasUserPickedModeRef = useRef(false);
+  const lastAutoSyncKeyRef = useRef<string>('');
 
   // Listen to Firebase Auth and Firestore real-time updates (Owner Students + Teacher Assignments + Assigned Students)
   useEffect(() => {
@@ -242,20 +246,41 @@ export default function App() {
           setOwnerAssignments(list);
         });
 
-        unsubscribeMyTeacherAssignments = subscribeToMyTeacherAssignments(user, (list) => {
-          setMyTeacherAssignments(list);
-        });
+        setTeacherStudentsLoading(true);
+        setTeacherStudentsError('');
 
-        unsubscribeTeacherStudents = subscribeToTeacherAssignedStudents(user, (list) => {
-          setTeacherAssignedStudents(list);
-        });
+        unsubscribeMyTeacherAssignments = subscribeToMyTeacherAssignments(
+          user,
+          (list) => {
+            setMyTeacherAssignments(list);
+          },
+          (errMsg) => {
+            setTeacherStudentsError(errMsg);
+          }
+        );
+
+        unsubscribeTeacherStudents = subscribeToTeacherAssignedStudents(
+          user,
+          (list) => {
+            setTeacherAssignedStudents(list);
+            setTeacherStudentsLoading(false);
+            setTeacherStudentsError('');
+          },
+          (errMsg) => {
+            setTeacherStudentsLoading(false);
+            setTeacherStudentsError(errMsg);
+          }
+        );
       } else {
         setCloudStatus('idle');
         setOwnerAssignments([]);
         setMyTeacherAssignments([]);
         setTeacherAssignedStudents([]);
+        setTeacherStudentsLoading(false);
+        setTeacherStudentsError('');
         setPortalMode('ADMIN');
         hasUserPickedModeRef.current = false;
+        lastAutoSyncKeyRef.current = '';
       }
     });
 
@@ -264,6 +289,33 @@ export default function App() {
       cleanupSubs();
     };
   }, []);
+
+  // Automatically sync assignedTeacherEmails on owner student documents whenever records & assignments are out of sync
+  useEffect(() => {
+    if (!firebaseUser || records.length === 0 || ownerAssignments.length === 0) return;
+
+    const staleCount = records.filter((rec) => {
+      const currentEmails = (rec.assignedTeacherEmails || []).slice().sort().join(',');
+      const expectedEmails = computeAssignedTeacherEmailsForStudent(rec, ownerAssignments)
+        .slice()
+        .sort()
+        .join(',');
+      return currentEmails !== expectedEmails;
+    }).length;
+
+    if (staleCount === 0) return;
+
+    const syncFingerprint = `${firebaseUser.uid}|${records.length}|${ownerAssignments
+      .map((a) => `${a.id}:${a.active}:${a.schoolCode}:${a.assignedClasses.join(',')}:${a.assignedSubjects.join(',')}`)
+      .join(';')}|stale:${staleCount}`;
+
+    if (lastAutoSyncKeyRef.current === syncFingerprint) return;
+    lastAutoSyncKeyRef.current = syncFingerprint;
+
+    syncTeacherAccessToOwnerStudents(records, ownerAssignments).catch((err) => {
+      console.error('Auto-sync teacher permissions warning:', err);
+    });
+  }, [firebaseUser, records, ownerAssignments]);
 
   // Automatically open Teacher Marks Portal when a pure subject teacher signs in with Google
   useEffect(() => {
@@ -682,6 +734,27 @@ export default function App() {
     [filteredRecords, safePage]
   );
 
+  // Merge Firestore teacher-assigned students with any matching owned records (for Admin self-testing Teacher Mode)
+  const effectiveTeacherPortalStudents = useMemo(() => {
+    if (!firebaseUser || myTeacherAssignments.length === 0) return teacherAssignedStudents;
+    const myEmail = (firebaseUser.email || '').trim().toLowerCase();
+    const byKey = new Map<string, AdmitCardRecord>();
+    teacherAssignedStudents.forEach((st) => {
+      byKey.set(st.firestoreDocId || st.id, st);
+    });
+    if (records.length > 0 && myEmail) {
+      records.forEach((rec) => {
+        const key = rec.firestoreDocId || rec.id;
+        if (byKey.has(key)) return;
+        const emails = computeAssignedTeacherEmailsForStudent(rec, myTeacherAssignments);
+        if (emails.includes(myEmail)) {
+          byKey.set(key, rec);
+        }
+      });
+    }
+    return Array.from(byKey.values()).sort((a, b) => a.serialNo - b.serialNo);
+  }, [firebaseUser, myTeacherAssignments, teacherAssignedStudents, records]);
+
   // Dedicated clean Teacher Marks Entry Portal when a logged-in subject teacher is in TEACHER mode
   if (firebaseUser && portalMode === 'TEACHER' && myTeacherAssignments.length > 0) {
     const canSwitchToAdmin =
@@ -694,7 +767,9 @@ export default function App() {
           <TeacherMarksPortal
             user={firebaseUser}
             assignments={myTeacherAssignments}
-            assignedStudents={teacherAssignedStudents}
+            assignedStudents={effectiveTeacherPortalStudents}
+            isLoadingStudents={teacherStudentsLoading}
+            studentsError={teacherStudentsError}
             canSwitchToAdmin={canSwitchToAdmin}
             onSwitchToAdmin={() => {
               hasUserPickedModeRef.current = true;

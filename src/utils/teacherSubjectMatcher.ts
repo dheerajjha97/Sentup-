@@ -10,6 +10,24 @@ import {
 } from './marksAndFormat';
 
 /**
+ * Extracts a clean uppercase BSEB school/roll code (e.g. "31337 - UCHCH..." -> "31337", " 51803 " -> "51803")
+ * so Admin assignments, Student records, and Teacher Portal filtering always match consistently.
+ */
+export function normalizeSchoolCode(schoolCode?: string, rollCode?: string): string {
+  const candidates = [schoolCode, rollCode];
+  for (const raw of candidates) {
+    const trimmed = (raw || '').trim().toUpperCase();
+    if (!trimmed || trimmed === 'N/A' || trimmed === 'UNKNOWN') continue;
+    const prefixCode = trimmed.match(/^([A-Z0-9]{4,8})\s*[-–:|]\s*/);
+    if (prefixCode) return prefixCode[1];
+    const digitsOnly = trimmed.match(/\b(\d{4,6})\b/);
+    if (digitsOnly && trimmed.length > 10) return digitsOnly[1];
+    return trimmed;
+  }
+  return '';
+}
+
+/**
  * Normalizes any BSEB subject string (e.g. "117 - Physics", "117-PHYSICS", "319- H.Sc.", "MIL - HINDI")
  * to a canonical lowercase subject key so Admin assignments, Admit Card slots, and Sent-Up Panji slots always match.
  */
@@ -17,7 +35,8 @@ export function canonicalSubjectKey(raw: string): string {
   const cleaned = (raw || '')
     .toLowerCase()
     .replace(/^[0-9]+\s*[-–:]\s*/, '')
-    .replace(/^(mil|sil|sub|opt|addl|comp|elec)\s*[-–:]\s*/i, '')
+    .replace(/^(mil|sil|sub|opt|addl|comp|elec|mt|nlh)\s*[-–:]\s*/i, '')
+    .replace(/\((comp|opt|addl|mt|th|pr|theory|practical|mil|sil)\)/gi, ' ')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
@@ -34,11 +53,19 @@ export function canonicalSubjectKey(raw: string): string {
   if (/^(bus std|bst|business std|business studies|business study)$/.test(compact) || compact.includes('business')) return 'business studies';
   if (/^(entp|eps|entrepreneurship)$/.test(compact) || compact.includes('entre')) return 'entrepreneurship';
   if (/^(acc|account|accountancy|accounts)$/.test(compact) || compact.includes('account')) return 'accountancy';
-  if (/^(ssc|soc sc|soc sci|social sc|social sci|social science)$/.test(compact) || compact.includes('social')) return 'social science';
-  if (/^(sci|science)$/.test(compact)) return 'science';
-  if (/^(eng|english)$/.test(compact) || compact.includes('english')) return 'english';
-  if (/^(hin|hindi)$/.test(compact) || compact.includes('hindi')) return 'hindi';
-  if (/^(san|sanskrit)$/.test(compact) || compact.includes('sanskrit')) return 'sanskrit';
+  if (
+    /^(ssc|sst|s st|soc sc|soc sci|soc science|social sc|social sci|social science)$/.test(compact) ||
+    compact.includes('social') ||
+    compact.includes('soc sc')
+  ) {
+    return 'social science';
+  }
+  if (/^(sci|science)(\s+comp)?$/.test(compact) || (compact.includes('science') && !compact.includes('home') && !compact.includes('political') && !compact.includes('social') && !compact.includes('computer'))) {
+    return 'science';
+  }
+  if (/^(eng|english)(\s+comp)?$/.test(compact) || compact.includes('english')) return 'english';
+  if (/^(hin|hindi|mil|mt hindi|non hindi|nlh)$/.test(compact) || compact.includes('hindi')) return 'hindi';
+  if (/^(san|sanskrit|sil)$/.test(compact) || compact.includes('sanskrit')) return 'sanskrit';
   if (/^(urd|urdu)$/.test(compact) || compact.includes('urdu')) return 'urdu';
   if (/^(mai|maithili)$/.test(compact) || compact.includes('maithili')) return 'maithili';
   if (/^(hist|history)$/.test(compact) || compact.includes('history')) return 'history';
@@ -66,7 +93,15 @@ export function getRecordSubjectList(
     if (slot.subjectName) rawNames.push(slot.subjectName);
   }
 
-  if (record.examType === 'INTERMEDIATE (+2)' && record.interSentUp) {
+  if (record.allSubjectsSummary) {
+    record.allSubjectsSummary
+      .split(/[,;|]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((s) => rawNames.push(s));
+  }
+
+  if (record.examType === 'INTERMEDIATE (+2)') {
     const eff = getEffectiveInterSentUp(record);
     [
       eff.lang1Subject,
@@ -82,16 +117,10 @@ export function getRecordSubjectList(
   }
 
   if (record.examType === 'MATRIC (10th)') {
-    if (rawNames.length === 0) {
-      rawNames.push(
-        'MIL - HINDI',
-        'SIL - SANSKRIT',
-        'MATHEMATICS',
-        'SCIENCE',
-        'SOCIAL SCIENCE',
-        'ENGLISH'
-      );
-    }
+    // Every BSEB Matric student takes core subjects (Math, Science, Social Science, English) + MIL/SIL
+    if (!record.langSubject1) rawNames.push('MIL - HINDI');
+    if (!record.langSubject2) rawNames.push('SIL - SANSKRIT');
+    rawNames.push('MATHEMATICS', 'SCIENCE', 'SOCIAL SCIENCE', 'ENGLISH');
   }
 
   const byKey = new Map<string, string>();
@@ -352,12 +381,12 @@ export function computeAssignedTeacherEmailsForStudent(
   record: AdmitCardRecord,
   assignments: TeacherAssignment[]
 ): string[] {
-  const studentSchool = (record.schoolCode || record.rollCode || '').trim().toUpperCase();
+  const studentSchool = normalizeSchoolCode(record.schoolCode, record.rollCode);
   const emails = new Set<string>();
 
   for (const a of assignments) {
     if (!a.active) continue;
-    const assignSchool = (a.schoolCode || '').trim().toUpperCase();
+    const assignSchool = normalizeSchoolCode(a.schoolCode);
     if (!assignSchool || assignSchool !== studentSchool) continue;
     if (!a.assignedClasses.includes(record.examType)) continue;
 

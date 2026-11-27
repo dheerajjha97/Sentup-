@@ -216,7 +216,10 @@ service cloud.firestore {
       return hasVerifiedEmail()
         && 'assignedTeacherEmails' in existing()
         && existing().assignedTeacherEmails is list
-        && callerEmail() in existing().assignedTeacherEmails;
+        && (
+          request.auth.token.email in existing().assignedTeacherEmails
+          || callerEmail() in existing().assignedTeacherEmails
+        );
     }
 
     match /students/{studentId} {
@@ -225,7 +228,13 @@ service cloud.firestore {
         && (
           resource == null
           || existing().ownerId == request.auth.uid
-          || ('assignedTeacherEmails' in existing() && callerEmail() in existing().assignedTeacherEmails)
+          || (
+            'assignedTeacherEmails' in existing()
+            && (
+              request.auth.token.email in existing().assignedTeacherEmails
+              || callerEmail() in existing().assignedTeacherEmails
+            )
+          )
           || isAdmin()
         );
 
@@ -233,6 +242,7 @@ service cloud.firestore {
       allow list: if hasVerifiedEmail()
         && (
           resource.data.ownerId == request.auth.uid
+          || request.auth.token.email in resource.data.assignedTeacherEmails
           || callerEmail() in resource.data.assignedTeacherEmails
           || isSuperAdminEmail()
         );
@@ -293,6 +303,7 @@ service cloud.firestore {
         && (
           resource == null
           || existing().ownerId == request.auth.uid
+          || existing().teacherEmail == request.auth.token.email
           || existing().teacherEmail == callerEmail()
           || isAdmin()
         );
@@ -301,6 +312,7 @@ service cloud.firestore {
       allow list: if hasVerifiedEmail()
         && (
           resource.data.ownerId == request.auth.uid
+          || resource.data.teacherEmail == request.auth.token.email
           || resource.data.teacherEmail == callerEmail()
           || isSuperAdminEmail()
         );

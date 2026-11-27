@@ -1,9 +1,14 @@
 import express from 'express';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { createWorker, PSM, Worker } from 'tesseract.js';
+import tesseract from 'tesseract.js';
+import type { Worker } from 'tesseract.js';
 import { GoogleGenAI, Type } from '@google/genai';
+
+const { createWorker, PSM } = tesseract;
 
 dotenv.config();
 
@@ -11,51 +16,52 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '50mb' }));
 
-// Pre-warmed Tesseract worker pool for fast, zero-key-required OCR
+// Health check endpoint for Cloud Run startup/liveness probes
+app.get('/api/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// Lazy-initialized Tesseract worker pool (loaded only when /api/ocr-zones is called)
+// Uses os.tmpdir() for cachePath so Cloud Run read-only app directories never fail.
 let blockWorker: Worker | null = null;
-let lineWorker1: Worker | null = null;
-let lineWorker2: Worker | null = null;
+let lineWorker: Worker | null = null;
 let workersInitializing: Promise<void> | null = null;
 
 async function ensureOcrWorkers(): Promise<{
   block: Worker;
-  line1: Worker;
-  line2: Worker;
+  line: Worker;
 }> {
-  if (blockWorker && lineWorker1 && lineWorker2) {
-    return { block: blockWorker, line1: lineWorker1, line2: lineWorker2 };
+  if (blockWorker && lineWorker) {
+    return { block: blockWorker, line: lineWorker };
   }
   if (!workersInitializing) {
     workersInitializing = (async () => {
-      const [bw, lw1, lw2] = await Promise.all([
-        createWorker('eng'),
-        createWorker('eng'),
-        createWorker('eng'),
-      ]);
-      await bw.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-      await lw1.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
-      await lw2.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
-      blockWorker = bw;
-      lineWorker1 = lw1;
-      lineWorker2 = lw2;
+      try {
+        const cachePath = os.tmpdir();
+        const [bw, lw] = await Promise.all([
+          createWorker('eng', 1, { cachePath }),
+          createWorker('eng', 1, { cachePath }),
+        ]);
+        await bw.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        await lw.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_LINE });
+        blockWorker = bw;
+        lineWorker = lw;
+      } catch (err) {
+        workersInitializing = null;
+        throw err;
+      }
     })();
   }
   await workersInitializing;
   return {
     block: blockWorker!,
-    line1: lineWorker1!,
-    line2: lineWorker2!,
+    line: lineWorker!,
   };
 }
-
-// Kick off background worker initialization on startup
-ensureOcrWorkers().catch((err) => {
-  console.error('Tesseract worker warmup warning:', err);
-});
 
 function dataUrlToBuffer(dataUrl: string): Buffer {
   const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
@@ -81,10 +87,8 @@ app.post('/api/ocr-zones', async (req, res) => {
       return;
     }
 
-    const { block, line1, line2 } = await ensureOcrWorkers();
+    const { block, line } = await ensureOcrWorkers();
 
-    // Run block worker on topFieldsImg (+ facultyImg sequentially on block),
-    // while line1 and line2 process the 6 subject strips in parallel!
     const blockTask = (async () => {
       const topRes = await block.recognize(dataUrlToBuffer(topFieldsImg));
       let facText = '';
@@ -95,31 +99,34 @@ app.post('/api/ocr-zones', async (req, res) => {
       return { topFieldsText: topRes.data.text, facultyText: facText };
     })();
 
-    const line1Task = (async () => {
-      const c1 = comp1Img ? (await line1.recognize(dataUrlToBuffer(comp1Img))).data.text : '';
-      const c2 = comp2Img ? (await line1.recognize(dataUrlToBuffer(comp2Img))).data.text : '';
-      const e1 = elec1Img ? (await line1.recognize(dataUrlToBuffer(elec1Img))).data.text : '';
-      return { comp1Text: c1, comp2Text: c2, elec1Text: e1 };
+    const lineTask = (async () => {
+      const c1 = comp1Img ? (await line.recognize(dataUrlToBuffer(comp1Img))).data.text : '';
+      const c2 = comp2Img ? (await line.recognize(dataUrlToBuffer(comp2Img))).data.text : '';
+      const e1 = elec1Img ? (await line.recognize(dataUrlToBuffer(elec1Img))).data.text : '';
+      const e2 = elec2Img ? (await line.recognize(dataUrlToBuffer(elec2Img))).data.text : '';
+      const e3 = elec3Img ? (await line.recognize(dataUrlToBuffer(elec3Img))).data.text : '';
+      const a2 = addl2Img ? (await line.recognize(dataUrlToBuffer(addl2Img))).data.text : '';
+      return {
+        comp1Text: c1,
+        comp2Text: c2,
+        elec1Text: e1,
+        elec2Text: e2,
+        elec3Text: e3,
+        addl2Text: a2,
+      };
     })();
 
-    const line2Task = (async () => {
-      const e2 = elec2Img ? (await line2.recognize(dataUrlToBuffer(elec2Img))).data.text : '';
-      const e3 = elec3Img ? (await line2.recognize(dataUrlToBuffer(elec3Img))).data.text : '';
-      const a2 = addl2Img ? (await line2.recognize(dataUrlToBuffer(addl2Img))).data.text : '';
-      return { elec2Text: e2, elec3Text: e3, addl2Text: a2 };
-    })();
-
-    const [blockOut, line1Out, line2Out] = await Promise.all([blockTask, line1Task, line2Task]);
+    const [blockOut, lineOut] = await Promise.all([blockTask, lineTask]);
 
     res.json({
       topFieldsText: blockOut.topFieldsText,
       facultyText: blockOut.facultyText,
-      comp1Text: line1Out.comp1Text,
-      comp2Text: line1Out.comp2Text,
-      elec1Text: line1Out.elec1Text,
-      elec2Text: line2Out.elec2Text,
-      elec3Text: line2Out.elec3Text,
-      addl2Text: line2Out.addl2Text,
+      comp1Text: lineOut.comp1Text,
+      comp2Text: lineOut.comp2Text,
+      elec1Text: lineOut.elec1Text,
+      elec2Text: lineOut.elec2Text,
+      elec3Text: lineOut.elec3Text,
+      addl2Text: lineOut.addl2Text,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'OCR processing failed';
@@ -220,7 +227,16 @@ app.post('/api/gemini-extract', async (req, res) => {
 });
 
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.join(__dirname, 'dist');
+  const hasDistBuild = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProduction =
+    process.env.NODE_ENV === 'production' ||
+    process.env.npm_lifecycle_event === 'start' ||
+    (hasDistBuild &&
+      process.env.npm_lifecycle_event !== 'dev' &&
+      !process.execArgv.some((arg) => arg.includes('tsx')));
+
+  if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -228,16 +244,22 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.use((req, res, next) => {
+      if (req.method === 'GET' && !req.path.startsWith('/api/')) {
+        res.sendFile(path.join(distPath, 'index.html'));
+        return;
+      }
+      next();
     });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server listening on http://localhost:${PORT}`);
+    console.log(`Server listening on http://0.0.0.0:${PORT} (mode=${isProduction ? 'production' : 'development'})`);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});
