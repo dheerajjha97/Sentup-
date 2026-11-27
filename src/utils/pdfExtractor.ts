@@ -4,8 +4,13 @@ import { AdmitCardRecord } from '../types/admitCard';
 import {
   parseMatricTextItems,
   parseInterOcrZones,
+  InterOcrZonesInput,
   PdfTextItem,
 } from './bsebParser';
+import { OcrZonesPayload, runBrowserOcrZones } from './browserOcr';
+
+// Sticky flag: avoids retrying /api/ocr-zones on every page when hosted on static platforms like Vercel
+let serverOcrAvailable: boolean | null = null;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   pdfWorkerUrl || `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -263,26 +268,51 @@ async function extractFromRenderedCanvas(
     0.85
   );
 
-  const response = await fetch('/api/ocr-zones', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      topFieldsImg,
-      facultyImg,
-      comp1Img,
-      comp2Img,
-      elec1Img,
-      elec2Img,
-      elec3Img,
-      addl2Img,
-    }),
-  });
+  const payload: OcrZonesPayload = {
+    topFieldsImg,
+    facultyImg,
+    comp1Img,
+    comp2Img,
+    elec1Img,
+    elec2Img,
+    elec3Img,
+    addl2Img,
+  };
 
-  if (!response.ok) {
-    throw new Error(`OCR request failed for page ${pageNum}`);
+  let zones: InterOcrZonesInput | null = null;
+  const isBrowserOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
+
+  if (isBrowserOnline && serverOcrAvailable !== false) {
+    try {
+      const response = await fetch('/api/ocr-zones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('application/json')) {
+        const data = (await response.json()) as Partial<InterOcrZonesInput>;
+        if (typeof data?.topFieldsText === 'string') {
+          serverOcrAvailable = true;
+          zones = data as InterOcrZonesInput;
+        } else {
+          serverOcrAvailable = false;
+        }
+      } else {
+        // Static hosts like Vercel return 404/405 or HTML rewrite for /api/ocr-zones
+        serverOcrAvailable = false;
+      }
+    } catch {
+      // Network error or backend unreachable — seamlessly switch to client-side Tesseract OCR
+      serverOcrAvailable = false;
+    }
   }
 
-  const zones = await response.json();
+  if (!zones) {
+    zones = await runBrowserOcrZones(payload);
+  }
+
   const record = parseInterOcrZones(zones, pageNum, fileName, serialNo, 'HYBRID_OCR');
   record.photoDataUrl = photoDataUrl;
   record.signatureDataUrl = signatureDataUrl;
