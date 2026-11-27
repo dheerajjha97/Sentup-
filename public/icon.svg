@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B3B91" />
+      <stop offset="55%" stop-color="#1D4ED8" />
+      <stop offset="100%" stop-color="#2563EB" />
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <rect x="24" y="24" width="464" height="232" rx="92" fill="url(#glow)" />
+  <!-- Graduation Cap Emblem -->
+  <polygon points="256,126 406,198 256,270 106,198" fill="#FFFFFF" />
+  <path d="M158,236 L158,312 C158,342 202,366 256,366 C310,366 354,342 354,312 L354,236 L256,284 Z" fill="#DBEAFE" />
+  <!-- Tassel -->
+  <rect x="380" y="206" width="14" height="92" rx="7" fill="#FFFFFF" />
+  <circle cx="387" cy="308" r="14" fill="#93C5FD" />
+  <!-- Subtle Document Bar -->
+  <rect x="196" y="392" width="120" height="16" rx="8" fill="#FFFFFF" fill-opacity="0.9" />
+</svg>

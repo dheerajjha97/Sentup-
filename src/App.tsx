@@ -92,6 +92,8 @@ import { AttendanceSheetView } from './components/AttendanceSheetView';
 import { TeacherManagementView } from './components/TeacherManagementView';
 import { TeacherMarksPortal } from './components/TeacherMarksPortal';
 import { LoginPage, PortalRole } from './components/LoginPage';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { OfflineIndicator } from './components/OfflineIndicator';
 import { computeAssignedTeacherEmailsForStudent } from './utils/teacherSubjectMatcher';
 
 export type SchoolModule = 'INTERMEDIATE' | 'MATRIC';
@@ -1227,6 +1229,8 @@ export default function App() {
                 <span>Marks Posting Settings & Tagging</span>
               </button>
 
+              <PWAInstallButton variant="drawer" onAction={() => setIsDrawerOpen(false)} />
+
               {currentModuleRecords.length > 0 && (
                 <>
                   {activeModule === 'INTERMEDIATE' ? (
@@ -1515,8 +1519,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right: Firebase Cloud Sync + Primary Actions (Strictly Admin Module) */}
+        {/* Right: PWA Install + Firebase Cloud Sync + Primary Actions (Strictly Admin Module) */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <PWAInstallButton variant="header" />
           {firebaseUser ? (
             <div
               title={`Firebase: ${firebaseUser.email || firebaseUser.displayName} (${cloudStatus === 'syncing' ? 'Syncing...' : 'Saved'})`}
@@ -2615,6 +2620,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      <OfflineIndicator />
     </MotionConfig>
   );
 }

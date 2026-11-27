@@ -9,6 +9,7 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export type PortalRole = 'ADMIN' | 'TEACHER';
 
@@ -204,13 +205,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </motion.button>
           </div>
 
-          {/* Quiet Unboxed Footer Metadata */}
-          <div className="mt-7 pt-5 border-t border-slate-200/80 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-slate-500">
-            <span>Intermediate (+2) &amp; Matric (10th)</span>
-            <span aria-hidden="true">·</span>
-            <span>Separate Role Workspaces</span>
-            <span aria-hidden="true">·</span>
-            <span>Cloud Synced</span>
+          {/* Optional PWA Install CTA & Quiet Unboxed Footer Metadata */}
+          <div className="mt-7 pt-5 border-t border-slate-200/80 flex flex-col items-center gap-3">
+            <PWAInstallButton variant="login" />
+            <div className="flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-xs text-slate-500">
+              <span>Intermediate (+2) &amp; Matric (10th)</span>
+              <span aria-hidden="true">·</span>
+              <span>Separate Role Workspaces</span>
+              <span aria-hidden="true">·</span>
+              <span>Cloud Synced</span>
+            </div>
           </div>
         </div>
       </motion.main>

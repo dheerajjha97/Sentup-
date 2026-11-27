@@ -29,6 +29,7 @@ import {
   normalizeSchoolCode,
   studentMatchesAssignedSubject,
 } from '../utils/teacherSubjectMatcher';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface TeacherMarksPortalProps {
   user: User;
@@ -656,6 +657,7 @@ export const TeacherMarksPortal: React.FC<TeacherMarksPortalProps> = ({
                 </span>
               </button>
             )}
+            <PWAInstallButton variant="header" />
             <button
               type="button"
               onClick={onSignOut}
