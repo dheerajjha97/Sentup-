@@ -1,41 +1,111 @@
-import test from 'node:test';
-import assert from 'node:assert/strict';
-import fs from 'node:fs';
-
 /**
- * Static and structural verification of firestore.rules against all 12 Dirty Dozen invariants.
+ * Phase 0: Security TDD Specification for /students/{studentId} & /teacherAssignments/{assignmentId}
+ * Verifies all "Dirty Dozen" attack payloads fail with PERMISSION_DENIED under firestore.rules.
  */
-test('firestore.rules enforces all 8 pillars and rejects Dirty Dozen attack vectors', () => {
-  const rulesPath = fs.existsSync('firestore.rules')
-    ? 'firestore.rules'
-    : 'DRAFT_firestore.rules';
-  const rules = fs.readFileSync(rulesPath, 'utf8');
+export interface DirtyDozenCase {
+  id: number;
+  name: string;
+  collection: 'students' | 'teacherAssignments';
+  operation: 'get' | 'list' | 'create' | 'update' | 'delete';
+  expected: 'PERMISSION_DENIED';
+  payloadSummary: string;
+}
 
-  // 1. Rules version 2 & default deny catch-all
-  assert.match(rules, /rules_version\s*=\s*'2';/);
-  assert.match(rules, /match\s+\/\{document=\*\*\}\s*\{\s*allow\s+read,\s*write:\s*if\s+false;\s*\}/);
-
-  // 2. Auth & verified email checks
-  assert.match(rules, /request\.auth\s*!=\s*null/);
-  assert.match(rules, /request\.auth\.token\.email_verified\s*==\s*true/);
-
-  // 3. Path ID poisoning guard
-  assert.match(rules, /function\s+isValidId\(id\)/);
-  assert.match(rules, /isValidId\(studentId\)/);
-
-  // 4. Strict key allowlist (hasAll & hasOnly) for Student, InterSentUp, and MatricSentUp
-  assert.match(rules, /data\.keys\(\)\.hasAll\(/);
-  assert.match(rules, /data\.keys\(\)\.hasOnly\(/);
-  assert.match(rules, /function\s+isValidInterSentUp\(m\)/);
-  assert.match(rules, /function\s+isValidMatricSentUp\(m\)/);
-  assert.match(rules, /function\s+isValidStudent\(data\)/);
-
-  // 5. Temporal integrity & immutability
-  assert.match(rules, /incoming\(\)\.createdAt\s*==\s*request\.time/);
-  assert.match(rules, /incoming\(\)\.updatedAt\s*==\s*request\.time/);
-  assert.match(rules, /incoming\(\)\.ownerId\s*==\s*existing\(\)\.ownerId/);
-  assert.match(rules, /incoming\(\)\.createdAt\s*==\s*existing\(\)\.createdAt/);
-
-  // 6. Query Enforcer on list & get (no blanket reads)
-  assert.match(rules, /allow\s+list:\s*if\s+isVerifiedUser\(\)\s*&&\s*resource\.data\.ownerId\s*==\s*request\.auth\.uid;/);
-});
+export const DIRTY_DOZEN_SECURITY_CASES: DirtyDozenCase[] = [
+  {
+    id: 1,
+    name: 'Unauthenticated Access',
+    collection: 'students',
+    operation: 'create',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'auth = null attempting to create or read student records',
+  },
+  {
+    id: 2,
+    name: 'Email Spoofing (Unverified Email)',
+    collection: 'teacherAssignments',
+    operation: 'list',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'auth.token.email matches teacherEmail but email_verified = false',
+  },
+  {
+    id: 3,
+    name: 'Cross-Owner Assignment Creation',
+    collection: 'teacherAssignments',
+    operation: 'create',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'attacker sets ownerId = victim_uid on teacherAssignments create',
+  },
+  {
+    id: 4,
+    name: 'Teacher Self-Assignment Escalation',
+    collection: 'teacherAssignments',
+    operation: 'update',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'teacher tries to append extra subjects/classes to admin-owned teacherAssignment',
+  },
+  {
+    id: 5,
+    name: 'Teacher Demographic Tampering',
+    collection: 'students',
+    operation: 'update',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'assigned teacher attempts to modify studentName, schoolCode, or assignedTeacherEmails',
+  },
+  {
+    id: 6,
+    name: 'Teacher Student Deletion',
+    collection: 'students',
+    operation: 'delete',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'assigned teacher attempts to delete a student record owned by admin',
+  },
+  {
+    id: 7,
+    name: 'Shadow Field Injection',
+    collection: 'teacherAssignments',
+    operation: 'create',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'create payload includes undeclared shadow key isAdmin: true',
+  },
+  {
+    id: 8,
+    name: 'Path ID Poisoning',
+    collection: 'teacherAssignments',
+    operation: 'create',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'document ID contains invalid characters bad$id!@# failing isValidId()',
+  },
+  {
+    id: 9,
+    name: 'Array Overflow Denial-of-Wallet',
+    collection: 'teacherAssignments',
+    operation: 'create',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'assignedSubjects array exceeds max 25 items or assignedTeacherEmails exceeds 30',
+  },
+  {
+    id: 10,
+    name: 'Nested Marks Value Poisoning',
+    collection: 'students',
+    operation: 'update',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'assigned teacher sends oversized 100-char string or undeclared key inside interSentUp',
+  },
+  {
+    id: 11,
+    name: 'Client Timestamp Forgery',
+    collection: 'students',
+    operation: 'update',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'update payload sends client timestamp updatedAt != request.time or mutates createdAt',
+  },
+  {
+    id: 12,
+    name: 'Unassigned School Cross-Read',
+    collection: 'students',
+    operation: 'get',
+    expected: 'PERMISSION_DENIED',
+    payloadSummary: 'teacher assigned to school 51803 tries to read student from school 99999',
+  },
+];

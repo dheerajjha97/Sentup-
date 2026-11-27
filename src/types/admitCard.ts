@@ -114,6 +114,23 @@ export interface AdmitCardRecord {
   sourcePageNumber: number;
   extractionMethod: 'PDF_TEXT_LAYER' | 'HYBRID_OCR' | 'GEMINI_VISION';
   remarks?: string;
+  // Firestore Cloud Sync & Teacher RBAC metadata
+  ownerId?: string;
+  firestoreDocId?: string;
+  assignedTeacherEmails?: string[];
+}
+
+export interface TeacherAssignment {
+  id: string;
+  ownerId: string;
+  ownerEmail: string;
+  teacherName: string;
+  teacherEmail: string;
+  schoolCode: string;
+  schoolName: string;
+  assignedClasses: ExamType[];
+  assignedSubjects: string[];
+  active: boolean;
 }
 
 export interface StudentMarksSummary {

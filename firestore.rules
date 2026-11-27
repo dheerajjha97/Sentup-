@@ -6,7 +6,7 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Hardened Global Primitives
+    // Pillar 3: Hardened Global Primitives
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -23,10 +23,37 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isVerifiedUser() {
-      return isSignedIn();
+    function hasVerifiedEmail() {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string
+        && request.auth.token.email.size() >= 3
+        && request.auth.token.email.size() <= 160;
     }
 
+    function callerEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    // Pure token-only admin check (safe in allow list without get/exists)
+    function isSuperAdminEmail() {
+      return hasVerifiedEmail() && callerEmail() == 'jhadheeraj97@gmail.com';
+    }
+
+    function isAdmin() {
+      return isSuperAdminEmail()
+        || (hasVerifiedEmail() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    // Pillar 5: Bounded string array guards
+    function isValidStringList(arr, minLen, maxLen) {
+      return arr is list
+        && arr.size() >= minLen
+        && arr.size() <= maxLen
+        && (arr.size() == 0 || (arr[0] is string && arr[0].size() >= 1 && arr[0].size() <= 160));
+    }
+
+    // Pillar 2: Validation Blueprints
     function isValidInterSentUp(m) {
       return m is map
         && m.keys().hasAll([
@@ -119,10 +146,9 @@ service cloud.firestore {
           'compulsorySubject3', 'compulsorySubject4', 'additionalSubject',
           'allSubjectsSummary', 'sourceFileName', 'sourcePageNumber',
           'extractionMethod', 'interSentUp', 'matricSentUp',
-          'createdAt', 'updatedAt'
+          'assignedTeacherEmails', 'createdAt', 'updatedAt'
         ])
         && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$')
-        && data.ownerId == request.auth.uid
         && data.serialNo is number && data.serialNo >= 0 && data.serialNo <= 100000
         && data.examType is string && data.examType.size() <= 32 && (data.examType == 'MATRIC (10th)' || data.examType == 'INTERMEDIATE (+2)')
         && data.examYear is string && data.examYear.size() <= 16
@@ -157,26 +183,150 @@ service cloud.firestore {
         && data.extractionMethod is string && data.extractionMethod.size() <= 32
         && isValidInterSentUp(data.interSentUp)
         && isValidMatricSentUp(data.matricSentUp)
+        && (!('assignedTeacherEmails' in data) || isValidStringList(data.assignedTeacherEmails, 0, 30))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
 
+    function isValidTeacherAssignment(data) {
+      return data.keys().hasAll([
+          'ownerId', 'ownerEmail', 'teacherName', 'teacherEmail',
+          'schoolCode', 'schoolName', 'assignedClasses', 'assignedSubjects',
+          'active', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'ownerEmail', 'teacherName', 'teacherEmail',
+          'schoolCode', 'schoolName', 'assignedClasses', 'assignedSubjects',
+          'active', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerEmail is string && data.ownerEmail.size() >= 3 && data.ownerEmail.size() <= 160
+        && data.teacherName is string && data.teacherName.size() >= 1 && data.teacherName.size() <= 120
+        && data.teacherEmail is string && data.teacherEmail.size() >= 3 && data.teacherEmail.size() <= 160
+        && data.schoolCode is string && data.schoolCode.size() >= 1 && data.schoolCode.size() <= 32
+        && data.schoolName is string && data.schoolName.size() <= 200
+        && isValidStringList(data.assignedClasses, 1, 2)
+        && isValidStringList(data.assignedSubjects, 1, 25)
+        && data.active is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isStudentAssignedTeacher() {
+      return hasVerifiedEmail()
+        && 'assignedTeacherEmails' in existing()
+        && existing().assignedTeacherEmails is list
+        && callerEmail() in existing().assignedTeacherEmails;
+    }
+
     match /students/{studentId} {
-      allow get: if isVerifiedUser() && isValidId(studentId) && (resource == null || existing().ownerId == request.auth.uid);
-      allow list: if isVerifiedUser() && resource.data.ownerId == request.auth.uid;
-
-      allow create: if isVerifiedUser()
+      allow get: if hasVerifiedEmail()
         && isValidId(studentId)
-        && incoming().ownerId == request.auth.uid;
+        && (
+          resource == null
+          || existing().ownerId == request.auth.uid
+          || ('assignedTeacherEmails' in existing() && callerEmail() in existing().assignedTeacherEmails)
+          || isAdmin()
+        );
 
-      allow update: if isVerifiedUser()
-        && isValidId(studentId)
-        && existing().ownerId == request.auth.uid
-        && incoming().ownerId == request.auth.uid;
+      // Pillar 8: Zero get()/exists() in allow list; strictly enforces resource.data boundaries
+      allow list: if hasVerifiedEmail()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || callerEmail() in resource.data.assignedTeacherEmails
+          || isSuperAdminEmail()
+        );
 
-      allow delete: if isVerifiedUser()
+      allow create: if hasVerifiedEmail()
         && isValidId(studentId)
-        && existing().ownerId == request.auth.uid;
+        && isValidStudent(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      // Pillar 4: Tiered Action-Based Update (Owner vs Assigned Teacher Marks-Only)
+      allow update: if hasVerifiedEmail()
+        && isValidId(studentId)
+        && isValidStudent(incoming())
+        && incoming().ownerId == existing().ownerId
+        && (
+          ('createdAt' in existing() && incoming().createdAt == existing().createdAt)
+          || (!('createdAt' in existing()) && incoming().createdAt == request.time)
+        )
+        && incoming().updatedAt == request.time
+        && (
+          // Tier 1: Owner or Admin full record update (also allows cleaning legacy keys on older docs)
+          (
+            (existing().ownerId == request.auth.uid || isAdmin())
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'serialNo', 'examType', 'examYear', 'faculty', 'bsebUniqueId',
+              'schoolCode', 'schoolName', 'studentName', 'motherName', 'fatherName',
+              'dob', 'gender', 'maritalStatus', 'aadhaarNo', 'studentCategory',
+              'casteCategory', 'differentlyAbled', 'registrationNo', 'rollCode',
+              'rollNumber', 'examCenter', 'langSubject1', 'langSubject2',
+              'compulsorySubject1', 'compulsorySubject2', 'compulsorySubject3',
+              'compulsorySubject4', 'additionalSubject', 'allSubjectsSummary',
+              'sourceFileName', 'sourcePageNumber', 'extractionMethod',
+              'interSentUp', 'matricSentUp', 'assignedTeacherEmails', 'updatedAt',
+              'createdAt', 'remarks', 'subjectMarks'
+            ])
+          )
+          ||
+          // Tier 2: Assigned Teacher restricted strictly to Marks entry fields
+          (
+            isStudentAssignedTeacher()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'interSentUp', 'matricSentUp', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if hasVerifiedEmail()
+        && isValidId(studentId)
+        && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /teacherAssignments/{assignmentId} {
+      // Pillar 6: PII Isolation - only creating school admin, the assigned teacher themselves, or super admin
+      allow get: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && (
+          resource == null
+          || existing().ownerId == request.auth.uid
+          || existing().teacherEmail == callerEmail()
+          || isAdmin()
+        );
+
+      // Pillar 8: Zero get()/exists() in allow list
+      allow list: if hasVerifiedEmail()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || resource.data.teacherEmail == callerEmail()
+          || isSuperAdminEmail()
+        );
+
+      allow create: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && isValidTeacherAssignment(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && isValidTeacherAssignment(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (existing().ownerId == request.auth.uid || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'ownerEmail', 'teacherName', 'teacherEmail', 'schoolCode',
+          'schoolName', 'assignedClasses', 'assignedSubjects', 'active', 'updatedAt'
+        ]);
+
+      allow delete: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && (existing().ownerId == request.auth.uid || isAdmin());
     }
   }
 }

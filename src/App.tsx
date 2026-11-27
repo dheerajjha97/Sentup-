@@ -27,6 +27,7 @@ import {
   Settings,
   Building2,
   ClipboardCheck,
+  Users,
 } from 'lucide-react';
 import {
   AdmitCardRecord,
@@ -36,6 +37,7 @@ import {
   ExtractionProgress,
   FacultyType,
   FilterState,
+  TeacherAssignment,
 } from './types/admitCard';
 import { computeSummaryStats } from './utils/bsebParser';
 import { extractFromUploadedFile } from './utils/pdfExtractor';
@@ -70,6 +72,12 @@ import {
   syncAllStudentsToFirestore,
   deleteStudentFromFirestore,
   clearAllUserStudentsFromFirestore,
+  saveTeacherAssignmentInFirestore,
+  deleteTeacherAssignmentFromFirestore,
+  syncTeacherAccessToOwnerStudents,
+  subscribeToOwnerTeacherAssignments,
+  subscribeToMyTeacherAssignments,
+  subscribeToTeacherAssignedStudents,
   User,
 } from './firebase';
 import { StudentDetailModal } from './components/StudentDetailModal';
@@ -79,13 +87,21 @@ import { SubjectMarksAndFormatView } from './components/SubjectMarksAndFormatVie
 import { SettingsModal } from './components/SettingsModal';
 import { SchoolUniversalDashboard } from './components/SchoolUniversalDashboard';
 import { AttendanceSheetView } from './components/AttendanceSheetView';
+import { TeacherManagementView } from './components/TeacherManagementView';
+import { TeacherMarksPortal } from './components/TeacherMarksPortal';
 
 export type SchoolModule = 'INTERMEDIATE' | 'MATRIC';
 
 export default function App() {
   const [records, setRecordsState] = useState<AdmitCardRecord[]>([]);
   const [activeModule, setActiveModule] = useState<SchoolModule>('INTERMEDIATE');
-  const [activeTab, setActiveTab] = useState<'register' | 'marks' | 'analytics' | 'dashboard' | 'attendance'>('dashboard');
+  const [activeTab, setActiveTab] = useState<
+    'register' | 'marks' | 'analytics' | 'dashboard' | 'attendance' | 'teachers'
+  >('dashboard');
+  const [portalMode, setPortalMode] = useState<'ADMIN' | 'TEACHER'>('ADMIN');
+  const [ownerAssignments, setOwnerAssignments] = useState<TeacherAssignment[]>([]);
+  const [myTeacherAssignments, setMyTeacherAssignments] = useState<TeacherAssignment[]>([]);
+  const [teacherAssignedStudents, setTeacherAssignedStudents] = useState<AdmitCardRecord[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AdmitCardRecord | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -134,24 +150,46 @@ export default function App() {
   const cancelExtractionRef = useRef(false);
   const recordsRef = useRef<AdmitCardRecord[]>(records);
   recordsRef.current = records;
+  const ownerAssignmentsRef = useRef<TeacherAssignment[]>(ownerAssignments);
+  ownerAssignmentsRef.current = ownerAssignments;
+  const hasUserPickedModeRef = useRef(false);
 
-  // Listen to Firebase Auth and Firestore real-time updates
+  // Listen to Firebase Auth and Firestore real-time updates (Owner Students + Teacher Assignments + Assigned Students)
   useEffect(() => {
     let unsubscribeFirestore: (() => void) | null = null;
+    let unsubscribeOwnerAssignments: (() => void) | null = null;
+    let unsubscribeMyTeacherAssignments: (() => void) | null = null;
+    let unsubscribeTeacherStudents: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
+    const cleanupSubs = () => {
       if (unsubscribeFirestore) {
         unsubscribeFirestore();
         unsubscribeFirestore = null;
       }
+      if (unsubscribeOwnerAssignments) {
+        unsubscribeOwnerAssignments();
+        unsubscribeOwnerAssignments = null;
+      }
+      if (unsubscribeMyTeacherAssignments) {
+        unsubscribeMyTeacherAssignments();
+        unsubscribeMyTeacherAssignments = null;
+      }
+      if (unsubscribeTeacherStudents) {
+        unsubscribeTeacherStudents();
+        unsubscribeTeacherStudents = null;
+      }
+    };
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      cleanupSubs();
 
       if (user) {
         setCloudStatus('syncing');
         // If user had unsaved local records before signing in, push them to Firestore
         if (recordsRef.current.length > 0) {
           try {
-            await syncAllStudentsToFirestore(recordsRef.current);
+            await syncAllStudentsToFirestore(recordsRef.current, ownerAssignmentsRef.current);
           } catch (err) {
             console.error('Initial Firestore sync error:', err);
           }
@@ -199,16 +237,46 @@ export default function App() {
           });
           setCloudStatus('synced');
         });
+
+        unsubscribeOwnerAssignments = subscribeToOwnerTeacherAssignments(user, (list) => {
+          setOwnerAssignments(list);
+        });
+
+        unsubscribeMyTeacherAssignments = subscribeToMyTeacherAssignments(user, (list) => {
+          setMyTeacherAssignments(list);
+        });
+
+        unsubscribeTeacherStudents = subscribeToTeacherAssignedStudents(user, (list) => {
+          setTeacherAssignedStudents(list);
+        });
       } else {
         setCloudStatus('idle');
+        setOwnerAssignments([]);
+        setMyTeacherAssignments([]);
+        setTeacherAssignedStudents([]);
+        setPortalMode('ADMIN');
+        hasUserPickedModeRef.current = false;
       }
     });
 
     return () => {
       unsubscribeAuth();
-      if (unsubscribeFirestore) unsubscribeFirestore();
+      cleanupSubs();
     };
   }, []);
+
+  // Automatically open Teacher Marks Portal when a pure subject teacher signs in with Google
+  useEffect(() => {
+    if (!firebaseUser) return;
+    if (
+      !hasUserPickedModeRef.current &&
+      myTeacherAssignments.length > 0 &&
+      records.length === 0 &&
+      ownerAssignments.length === 0
+    ) {
+      setPortalMode('TEACHER');
+    }
+  }, [firebaseUser, myTeacherAssignments.length, records.length, ownerAssignments.length]);
 
   // Wrapper that updates local state and persists changes to Firebase Firestore
   const setRecords = (
@@ -218,12 +286,34 @@ export default function App() {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (auth.currentUser) {
         setCloudStatus('syncing');
-        syncAllStudentsToFirestore(next)
+        syncAllStudentsToFirestore(next, ownerAssignmentsRef.current)
           .then(() => setCloudStatus('synced'))
           .catch(() => setCloudStatus('error'));
       }
       return next;
     });
+  };
+
+  const handleSaveTeacherAssignment = async (
+    input: Omit<TeacherAssignment, 'ownerId' | 'ownerEmail'>
+  ) => {
+    const saved = await saveTeacherAssignmentInFirestore(input);
+    const nextAssignments = ownerAssignmentsRef.current.some((a) => a.id === saved.id)
+      ? ownerAssignmentsRef.current.map((a) => (a.id === saved.id ? saved : a))
+      : [...ownerAssignmentsRef.current, saved];
+    setOwnerAssignments(nextAssignments);
+    await syncTeacherAccessToOwnerStudents(recordsRef.current, nextAssignments);
+  };
+
+  const handleDeleteTeacherAssignment = async (assignmentId: string) => {
+    await deleteTeacherAssignmentFromFirestore(assignmentId);
+    const nextAssignments = ownerAssignmentsRef.current.filter((a) => a.id !== assignmentId);
+    setOwnerAssignments(nextAssignments);
+    await syncTeacherAccessToOwnerStudents(recordsRef.current, nextAssignments);
+  };
+
+  const handleResyncAllTeacherAccess = async (): Promise<number> => {
+    return syncTeacherAccessToOwnerStudents(recordsRef.current, ownerAssignmentsRef.current);
   };
 
   const handleFirebaseSignIn = async () => {
@@ -320,7 +410,7 @@ export default function App() {
                 return [...prev, latestRecord];
               });
               if (auth.currentUser) {
-                upsertStudentInFirestore(latestRecord).catch(console.error);
+                upsertStudentInFirestore(latestRecord, ownerAssignmentsRef.current).catch(console.error);
               }
             }
             setProgress((prev) => ({
@@ -474,7 +564,7 @@ export default function App() {
   const handleUpdateRecord = (updated: AdmitCardRecord) => {
     setRecordsState((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     if (auth.currentUser) {
-      upsertStudentInFirestore(updated).catch(console.error);
+      upsertStudentInFirestore(updated, ownerAssignmentsRef.current).catch(console.error);
     }
   };
 
@@ -506,14 +596,14 @@ export default function App() {
       return [...otherRecords, ...updatedModuleRecords];
     });
     if (auth.currentUser) {
-      syncAllStudentsToFirestore(updatedModuleRecords).catch(console.error);
+      syncAllStudentsToFirestore(updatedModuleRecords, ownerAssignmentsRef.current).catch(console.error);
     }
   };
 
   const handleAddManualRecord = (newRecord: AdmitCardRecord) => {
     setRecordsState((prev) => [...prev, newRecord]);
     if (auth.currentUser) {
-      upsertStudentInFirestore(newRecord).catch(console.error);
+      upsertStudentInFirestore(newRecord, ownerAssignmentsRef.current).catch(console.error);
     }
   };
 
@@ -591,6 +681,31 @@ export default function App() {
     () => filteredRecords.slice((safePage - 1) * pageSize, safePage * pageSize),
     [filteredRecords, safePage]
   );
+
+  // Dedicated clean Teacher Marks Entry Portal when a logged-in subject teacher is in TEACHER mode
+  if (firebaseUser && portalMode === 'TEACHER' && myTeacherAssignments.length > 0) {
+    const canSwitchToAdmin =
+      records.length > 0 ||
+      ownerAssignments.length > 0 ||
+      (firebaseUser.email || '').toLowerCase() === 'jhadheeraj97@gmail.com';
+    return (
+      <div className="min-h-screen bg-[#F4F6FB] text-[#191C20]">
+        <main className="mx-auto w-full max-w-[1360px] px-4 sm:px-6 py-4 sm:py-6">
+          <TeacherMarksPortal
+            user={firebaseUser}
+            assignments={myTeacherAssignments}
+            assignedStudents={teacherAssignedStudents}
+            canSwitchToAdmin={canSwitchToAdmin}
+            onSwitchToAdmin={() => {
+              hasUserPickedModeRef.current = true;
+              setPortalMode('ADMIN');
+            }}
+            onSignOut={handleFirebaseSignOut}
+          />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-[#F4F6FB] text-[#191C20] print:h-auto print:overflow-visible print:block print:bg-white">
@@ -837,6 +952,46 @@ export default function App() {
                   <span>Attendance Sheet (Print)</span>
                 </span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('teachers');
+                  setIsDrawerOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-full px-4 py-2.5 text-xs font-semibold transition-colors ${
+                  activeTab === 'teachers'
+                    ? 'bg-indigo-100 text-indigo-950'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <Users className="h-4 w-4 text-indigo-600" />
+                  <span>Assign Teachers</span>
+                </span>
+                {ownerAssignments.length > 0 && (
+                  <span className="rounded-full bg-white/80 px-2 py-0.5 font-mono text-[10px] text-indigo-900 font-bold">
+                    {ownerAssignments.length}
+                  </span>
+                )}
+              </button>
+
+              {firebaseUser && myTeacherAssignments.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    hasUserPickedModeRef.current = true;
+                    setPortalMode('TEACHER');
+                    setIsDrawerOpen(false);
+                  }}
+                  className="flex w-full items-center justify-between rounded-full bg-emerald-50 px-4 py-2.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 transition-colors"
+                >
+                  <span className="flex items-center gap-3">
+                    <BookOpen className="h-4 w-4 text-emerald-700" />
+                    <span>Open Teacher Marks Portal</span>
+                  </span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -1197,6 +1352,20 @@ export default function App() {
 
         {/* Right: Firebase Cloud Sync + Primary Actions */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {firebaseUser && myTeacherAssignments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                hasUserPickedModeRef.current = true;
+                setPortalMode('TEACHER');
+              }}
+              title="Open Teacher Marks Entry Portal"
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100 whitespace-nowrap shrink-0"
+            >
+              <Users className="h-3.5 w-3.5 text-emerald-700" />
+              <span className="hidden sm:inline">Teacher Portal</span>
+            </button>
+          )}
           {firebaseUser ? (
             <div
               title={`Firebase: ${firebaseUser.email || firebaseUser.displayName} (${cloudStatus === 'syncing' ? 'Syncing...' : 'Saved'})`}
@@ -1749,6 +1918,16 @@ export default function App() {
             activeModule={activeModule}
             onTriggerAdmitCardUpload={() => fileInputRef.current?.click()}
           />
+        ) : activeTab === 'teachers' ? (
+          <TeacherManagementView
+            records={records}
+            assignments={ownerAssignments}
+            firebaseUser={firebaseUser}
+            onSignIn={handleFirebaseSignIn}
+            onSaveAssignment={handleSaveTeacherAssignment}
+            onDeleteAssignment={handleDeleteTeacherAssignment}
+            onResyncAllAccess={handleResyncAllTeacherAccess}
+          />
         ) : activeTab === 'analytics' ? (
           <SummaryAnalyticsView stats={stats} />
         ) : activeTab === 'marks' ? (
@@ -2284,24 +2463,24 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('analytics')}
+          onClick={() => setActiveTab('teachers')}
           className="group flex flex-col items-center justify-center gap-0.5 focus:outline-none min-w-0"
         >
           <span
             className={`flex h-8 w-12 sm:w-16 items-center justify-center rounded-full transition-colors ${
-              activeTab === 'analytics'
+              activeTab === 'teachers'
                 ? 'bg-indigo-100 text-indigo-950'
                 : 'text-slate-500 group-hover:bg-slate-100'
             }`}
           >
-            <BarChart3 className="h-4 w-4" />
+            <Users className="h-4 w-4" />
           </span>
           <span
             className={`text-[10px] sm:text-[11px] truncate ${
-              activeTab === 'analytics' ? 'font-bold text-indigo-950' : 'font-medium text-slate-600'
+              activeTab === 'teachers' ? 'font-bold text-indigo-950' : 'font-medium text-slate-600'
             }`}
           >
-            Analytics
+            Teachers
           </span>
         </button>
       </nav>
@@ -2333,7 +2512,7 @@ export default function App() {
         onUpdateRecords={(updated) => {
           setRecordsState(updated);
           if (auth.currentUser) {
-            syncAllStudentsToFirestore(updated).catch(console.error);
+            syncAllStudentsToFirestore(updated, ownerAssignmentsRef.current).catch(console.error);
           }
         }}
       />

@@ -86,7 +86,7 @@
     },
     "StudentRecord": {
       "title": "StudentRecord",
-      "description": "BSEB Admit Card and Sent-Up Marks record owned by an authenticated user",
+      "description": "BSEB Admit Card and Sent-Up Marks record owned by a school admin and optionally shared with assigned subject teachers",
       "type": "object",
       "properties": {
         "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -124,6 +124,7 @@
         "extractionMethod": { "type": "string", "maxLength": 32 },
         "interSentUp": { "$ref": "#/entities/InterSentUpMarks", "type": "object" },
         "matricSentUp": { "$ref": "#/entities/MatricSentUpMarks", "type": "object" },
+        "assignedTeacherEmails": { "type": "array", "description": "Bounded list (max 30) of lowercase teacher emails authorized to update marks for this student" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -163,6 +164,38 @@
         "extractionMethod",
         "interSentUp",
         "matricSentUp",
+        "assignedTeacherEmails",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TeacherAssignment": {
+      "title": "TeacherAssignment",
+      "description": "Maps a teacher Gmail to a School Code, multiple Classes (10th/12th), and multiple Subjects for marks entry",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerEmail": { "type": "string", "maxLength": 160 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "teacherEmail": { "type": "string", "maxLength": 160 },
+        "schoolCode": { "type": "string", "maxLength": 32 },
+        "schoolName": { "type": "string", "maxLength": 200 },
+        "assignedClasses": { "type": "array", "description": "Bounded list (1..2) of ExamType values" },
+        "assignedSubjects": { "type": "array", "description": "Bounded list (1..25) of subject names assigned to this teacher" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "ownerEmail",
+        "teacherName",
+        "teacherEmail",
+        "schoolCode",
+        "schoolName",
+        "assignedClasses",
+        "assignedSubjects",
+        "active",
         "createdAt",
         "updatedAt"
       ]
@@ -171,7 +204,11 @@
   "firestore": {
     "/students/{studentId}": {
       "schema": { "$ref": "#/entities/StudentRecord" },
-      "description": "Stores extracted BSEB Admit Card student details and 10th/12th Sent-Up marks scoped to ownerId."
+      "description": "Stores extracted BSEB Admit Card student details and 10th/12th Sent-Up marks scoped to ownerId and authorized assignedTeacherEmails."
+    },
+    "/teacherAssignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/TeacherAssignment" },
+      "description": "Stores School Code -> Teacher Email -> Multi-Class & Multi-Subject permissions created by school admins."
     }
   }
 }

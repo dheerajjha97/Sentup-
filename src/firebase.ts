@@ -12,6 +12,7 @@ import {
   doc,
   getDocFromServer,
   getDoc,
+  getDocs,
   setDoc,
   updateDoc,
   deleteDoc,
@@ -23,8 +24,15 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
-import { AdmitCardRecord, InterSentUpMarks, MatricSentUpMarks } from './types/admitCard';
+import {
+  AdmitCardRecord,
+  ExamType,
+  InterSentUpMarks,
+  MatricSentUpMarks,
+  TeacherAssignment,
+} from './types/admitCard';
 import { getEffectiveInterSentUp, getEffectiveMatricSentUp } from './utils/marksAndFormat';
+import { computeAssignedTeacherEmailsForStudent } from './utils/teacherSubjectMatcher';
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -149,7 +157,11 @@ export function sanitizeMatricSentUpForFirestore(record: AdmitCardRecord): Matri
   };
 }
 
-export function buildStudentFirestorePayload(record: AdmitCardRecord, ownerId: string) {
+export function buildStudentFirestorePayload(
+  record: AdmitCardRecord,
+  ownerId: string,
+  assignedTeacherEmails?: string[]
+) {
   const validExamType =
     record.examType === 'MATRIC (10th)' ? 'MATRIC (10th)' : 'INTERMEDIATE (+2)';
   const validFaculty = ['SECONDARY', 'ARTS', 'SCIENCE', 'COMMERCE', 'VOCATIONAL'].includes(
@@ -160,6 +172,14 @@ export function buildStudentFirestorePayload(record: AdmitCardRecord, ownerId: s
   const validGender = ['MALE', 'FEMALE', 'OTHER'].includes(record.gender)
     ? record.gender
     : 'FEMALE';
+
+  const sanitizedEmails = Array.from(
+    new Set(
+      (assignedTeacherEmails ?? record.assignedTeacherEmails ?? [])
+        .map((e) => clampStr(e, 160).toLowerCase())
+        .filter((e) => e.length >= 3)
+    )
+  ).slice(0, 30);
 
   return {
     ownerId: clampStr(ownerId, 128),
@@ -197,22 +217,33 @@ export function buildStudentFirestorePayload(record: AdmitCardRecord, ownerId: s
     extractionMethod: clampStr(record.extractionMethod || 'PDF_TEXT_LAYER', 32),
     interSentUp: sanitizeInterSentUpForFirestore(record),
     matricSentUp: sanitizeMatricSentUpForFirestore(record),
+    assignedTeacherEmails: sanitizedEmails,
   };
 }
 
-export async function upsertStudentInFirestore(record: AdmitCardRecord): Promise<void> {
+export async function upsertStudentInFirestore(
+  record: AdmitCardRecord,
+  activeAssignments?: TeacherAssignment[]
+): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) return;
 
   const docId = sanitizeDocId(`${currentUser.uid}_${record.id}`);
   const path = `students/${docId}`;
   const docRef = doc(db, 'students', docId);
-  const basePayload = buildStudentFirestorePayload(record, currentUser.uid);
+  const computedEmails = activeAssignments
+    ? computeAssignedTeacherEmailsForStudent(record, activeAssignments)
+    : record.assignedTeacherEmails;
+  const basePayload = buildStudentFirestorePayload(record, currentUser.uid, computedEmails);
 
   let exists = false;
+  let existingCreatedAt: unknown = null;
   try {
     const snap = await getDoc(docRef);
     exists = snap.exists();
+    if (exists) {
+      existingCreatedAt = snap.data()?.createdAt ?? null;
+    }
   } catch (error) {
     console.warn('Pre-write document check failed, defaulting to creation mode:', error);
     exists = false;
@@ -220,13 +251,13 @@ export async function upsertStudentInFirestore(record: AdmitCardRecord): Promise
 
   if (exists) {
     try {
-      const { ownerId: _omitOwner, ...updateFields } = basePayload;
-      await updateDoc(docRef, {
-        ...updateFields,
+      await setDoc(docRef, {
+        ...basePayload,
+        createdAt: existingCreatedAt || serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
-      console.warn('Firestore update failed for student record:', path, error);
+      handleFirestoreError(error, OperationType.UPDATE, path);
     }
   } else {
     try {
@@ -236,17 +267,20 @@ export async function upsertStudentInFirestore(record: AdmitCardRecord): Promise
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
-      console.warn('Firestore create failed for student record:', path, error);
+      handleFirestoreError(error, OperationType.CREATE, path);
     }
   }
 }
 
-export async function syncAllStudentsToFirestore(records: AdmitCardRecord[]): Promise<void> {
+export async function syncAllStudentsToFirestore(
+  records: AdmitCardRecord[],
+  activeAssignments?: TeacherAssignment[]
+): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser || records.length === 0) return;
 
   for (const rec of records) {
-    await upsertStudentInFirestore(rec);
+    await upsertStudentInFirestore(rec, activeAssignments);
   }
 }
 
@@ -279,6 +313,65 @@ export async function clearAllUserStudentsFromFirestore(records: AdmitCardRecord
   }
 }
 
+function mapFirestoreDocToAdmitCardRecord(
+  docId: string,
+  data: Record<string, unknown>,
+  stripPrefix?: string
+): AdmitCardRecord {
+  const rawId = stripPrefix && docId.startsWith(stripPrefix) ? docId.slice(stripPrefix.length) : docId;
+  return {
+    id: rawId,
+    firestoreDocId: docId,
+    ownerId: String(data.ownerId || ''),
+    assignedTeacherEmails: Array.isArray(data.assignedTeacherEmails)
+      ? data.assignedTeacherEmails.map((e) => String(e).toLowerCase())
+      : [],
+    serialNo: Number(data.serialNo) || 1,
+    examType: data.examType === 'MATRIC (10th)' ? 'MATRIC (10th)' : 'INTERMEDIATE (+2)',
+    examYear: String(data.examYear || '2026'),
+    faculty: (data.faculty || 'SCIENCE') as AdmitCardRecord['faculty'],
+    bsebUniqueId: String(data.bsebUniqueId || ''),
+    schoolCode: String(data.schoolCode || ''),
+    schoolName: String(data.schoolName || ''),
+    studentName: String(data.studentName || ''),
+    motherName: String(data.motherName || ''),
+    fatherName: String(data.fatherName || ''),
+    dob: String(data.dob || ''),
+    gender: (data.gender || 'FEMALE') as AdmitCardRecord['gender'],
+    maritalStatus: String(data.maritalStatus || 'UNMARRIED'),
+    aadhaarNo: String(data.aadhaarNo || ''),
+    studentCategory:
+      String(data.studentCategory || 'REGULAR')
+        .replace(/[\u0900-\u097F]/g, '')
+        .trim() || 'REGULAR',
+    casteCategory: String(data.casteCategory || 'GENERAL'),
+    differentlyAbled: String(data.differentlyAbled || 'NO'),
+    registrationNo: String(data.registrationNo || '')
+      .replace(/\s*\/\s*20\d{2}.*/, '')
+      .replace(/[\u0900-\u097F]/g, '')
+      .trim(),
+    rollCode: String(data.rollCode || '')
+      .replace(/[\u0900-\u097F]/g, '')
+      .trim(),
+    rollNumber: String(data.rollNumber || ''),
+    examCenter: String(data.examCenter || ''),
+    langSubject1: String(data.langSubject1 || ''),
+    langSubject2: String(data.langSubject2 || ''),
+    compulsorySubject1: String(data.compulsorySubject1 || ''),
+    compulsorySubject2: String(data.compulsorySubject2 || ''),
+    compulsorySubject3: String(data.compulsorySubject3 || ''),
+    compulsorySubject4: String(data.compulsorySubject4 || ''),
+    additionalSubject: String(data.additionalSubject || ''),
+    allSubjectsSummary: String(data.allSubjectsSummary || ''),
+    sourceFileName: String(data.sourceFileName || 'Firestore Cloud'),
+    sourcePageNumber: Number(data.sourcePageNumber) || 1,
+    extractionMethod: (data.extractionMethod ||
+      'PDF_TEXT_LAYER') as AdmitCardRecord['extractionMethod'],
+    interSentUp: data.interSentUp as InterSentUpMarks | undefined,
+    matricSentUp: data.matricSentUp as MatricSentUpMarks | undefined,
+  };
+}
+
 export function subscribeToUserStudents(
   user: User,
   onData: (records: AdmitCardRecord[]) => void
@@ -288,49 +381,9 @@ export function subscribeToUserStudents(
     q,
     (snapshot) => {
       const prefix = `${user.uid}_`;
-      const loaded: AdmitCardRecord[] = snapshot.docs.map((d) => {
-        const data = d.data();
-        const rawId = d.id.startsWith(prefix) ? d.id.slice(prefix.length) : d.id;
-        return {
-          id: rawId,
-          serialNo: Number(data.serialNo) || 1,
-          examType:
-            data.examType === 'MATRIC (10th)' ? 'MATRIC (10th)' : 'INTERMEDIATE (+2)',
-          examYear: String(data.examYear || '2026'),
-          faculty: (data.faculty || 'SCIENCE') as AdmitCardRecord['faculty'],
-          bsebUniqueId: String(data.bsebUniqueId || ''),
-          schoolCode: String(data.schoolCode || ''),
-          schoolName: String(data.schoolName || ''),
-          studentName: String(data.studentName || ''),
-          motherName: String(data.motherName || ''),
-          fatherName: String(data.fatherName || ''),
-          dob: String(data.dob || ''),
-          gender: (data.gender || 'FEMALE') as AdmitCardRecord['gender'],
-          maritalStatus: String(data.maritalStatus || 'UNMARRIED'),
-          aadhaarNo: String(data.aadhaarNo || ''),
-          studentCategory: String(data.studentCategory || 'REGULAR').replace(/[\u0900-\u097F]/g, '').trim() || 'REGULAR',
-          casteCategory: String(data.casteCategory || 'GENERAL'),
-          differentlyAbled: String(data.differentlyAbled || 'NO'),
-          registrationNo: String(data.registrationNo || '').replace(/\s*\/\s*20\d{2}.*/, '').replace(/[\u0900-\u097F]/g, '').trim(),
-          rollCode: String(data.rollCode || '').replace(/[\u0900-\u097F]/g, '').trim(),
-          rollNumber: String(data.rollNumber || ''),
-          examCenter: String(data.examCenter || ''),
-          langSubject1: String(data.langSubject1 || ''),
-          langSubject2: String(data.langSubject2 || ''),
-          compulsorySubject1: String(data.compulsorySubject1 || ''),
-          compulsorySubject2: String(data.compulsorySubject2 || ''),
-          compulsorySubject3: String(data.compulsorySubject3 || ''),
-          compulsorySubject4: String(data.compulsorySubject4 || ''),
-          additionalSubject: String(data.additionalSubject || ''),
-          allSubjectsSummary: String(data.allSubjectsSummary || ''),
-          sourceFileName: String(data.sourceFileName || 'Firestore Cloud'),
-          sourcePageNumber: Number(data.sourcePageNumber) || 1,
-          extractionMethod: (data.extractionMethod ||
-            'PDF_TEXT_LAYER') as AdmitCardRecord['extractionMethod'],
-          interSentUp: data.interSentUp as InterSentUpMarks | undefined,
-          matricSentUp: data.matricSentUp as MatricSentUpMarks | undefined,
-        };
-      });
+      const loaded: AdmitCardRecord[] = snapshot.docs.map((d) =>
+        mapFirestoreDocToAdmitCardRecord(d.id, d.data() as Record<string, unknown>, prefix)
+      );
       loaded.sort((a, b) => a.serialNo - b.serialNo);
       onData(loaded.map((r, i) => ({ ...r, serialNo: i + 1 })));
     },
@@ -338,6 +391,311 @@ export function subscribeToUserStudents(
       handleFirestoreError(error, OperationType.LIST, 'students');
     }
   );
+}
+
+/**
+ * Maps a Firestore document snapshot into a TeacherAssignment.
+ */
+function mapDocToTeacherAssignment(docId: string, data: Record<string, unknown>): TeacherAssignment {
+  const rawClasses = Array.isArray(data.assignedClasses) ? data.assignedClasses : [];
+  const validClasses: ExamType[] = rawClasses
+    .map((c) => String(c))
+    .filter((c): c is ExamType => c === 'MATRIC (10th)' || c === 'INTERMEDIATE (+2)');
+
+  const rawSubjects = Array.isArray(data.assignedSubjects)
+    ? data.assignedSubjects.map((s) => String(s).trim()).filter(Boolean)
+    : [];
+
+  return {
+    id: docId,
+    ownerId: String(data.ownerId || ''),
+    ownerEmail: String(data.ownerEmail || ''),
+    teacherName: String(data.teacherName || ''),
+    teacherEmail: String(data.teacherEmail || '').toLowerCase(),
+    schoolCode: String(data.schoolCode || ''),
+    schoolName: String(data.schoolName || ''),
+    assignedClasses: validClasses,
+    assignedSubjects: rawSubjects,
+    active: Boolean(data.active),
+  };
+}
+
+/**
+ * Admin: Creates or updates a School-Code -> Teacher Email -> Multi-Class & Multi-Subject assignment.
+ */
+export async function saveTeacherAssignmentInFirestore(
+  input: Omit<TeacherAssignment, 'ownerId' | 'ownerEmail'>
+): Promise<TeacherAssignment> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Please sign in with Google first to assign teachers.');
+  }
+
+  const docId = sanitizeDocId(input.id || `ta_${currentUser.uid.slice(0, 8)}_${Date.now()}`);
+  const path = `teacherAssignments/${docId}`;
+  const docRef = doc(db, 'teacherAssignments', docId);
+
+  const cleanClasses = Array.from(
+    new Set(
+      input.assignedClasses.filter(
+        (c): c is ExamType => c === 'MATRIC (10th)' || c === 'INTERMEDIATE (+2)'
+      )
+    )
+  ).slice(0, 2);
+
+  const cleanSubjects = Array.from(
+    new Set(input.assignedSubjects.map((s) => clampStr(s, 120)).filter(Boolean))
+  ).slice(0, 25);
+
+  if (cleanClasses.length === 0) {
+    throw new Error('Select at least one class (10th or 12th).');
+  }
+  if (cleanSubjects.length === 0) {
+    throw new Error('Select at least one subject.');
+  }
+
+  const payload = {
+    ownerId: clampStr(currentUser.uid, 128),
+    ownerEmail: clampStr((currentUser.email || 'admin@school.local').toLowerCase(), 160),
+    teacherName: clampStr(input.teacherName || 'Subject Teacher', 120),
+    teacherEmail: clampStr(input.teacherEmail.trim().toLowerCase(), 160),
+    schoolCode: clampStr(input.schoolCode.trim(), 32),
+    schoolName: clampStr(input.schoolName.trim(), 200),
+    assignedClasses: cleanClasses,
+    assignedSubjects: cleanSubjects,
+    active: Boolean(input.active),
+  };
+
+  let exists = false;
+  try {
+    const snap = await getDoc(docRef);
+    exists = snap.exists();
+  } catch {
+    exists = false;
+  }
+
+  if (exists) {
+    try {
+      const { ownerId: _omitOwner, ...updateFields } = payload;
+      await updateDoc(docRef, {
+        ...updateFields,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  } else {
+    try {
+      await setDoc(docRef, {
+        ...payload,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+
+  return { id: docId, ...payload };
+}
+
+/**
+ * Admin: Deletes a TeacherAssignment document from Firestore.
+ */
+export async function deleteTeacherAssignmentFromFirestore(assignmentId: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return;
+
+  const docId = sanitizeDocId(assignmentId);
+  const path = `teacherAssignments/${docId}`;
+  try {
+    await deleteDoc(doc(db, 'teacherAssignments', docId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Admin: Synchronizes `assignedTeacherEmails` on all owner student documents in Firestore
+ * whenever teacher assignments are created, edited, paused, or removed.
+ * Queries existing docs first so `createdAt` is preserved and legacy docs are cleanly normalized.
+ */
+export async function syncTeacherAccessToOwnerStudents(
+  records: AdmitCardRecord[],
+  assignments: TeacherAssignment[]
+): Promise<number> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || records.length === 0) return 0;
+
+  // Fetch existing owner docs once to know exact doc presence and original createdAt timestamps
+  const existingMetaById = new Map<string, { createdAt: unknown; existingEmails: string[] }>();
+  try {
+    const q = query(collection(db, 'students'), where('ownerId', '==', currentUser.uid));
+    const snap = await getDocs(q);
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      existingMetaById.set(d.id, {
+        createdAt: data.createdAt ?? null,
+        existingEmails: Array.isArray(data.assignedTeacherEmails)
+          ? data.assignedTeacherEmails.map((e: unknown) => String(e).toLowerCase())
+          : [],
+      });
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'students');
+  }
+
+  let updatedCount = 0;
+  const CHUNK_SIZE = 350;
+
+  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+    const slice = records.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    let batchWrites = 0;
+
+    for (const rec of slice) {
+      const docId = rec.firestoreDocId || sanitizeDocId(`${currentUser.uid}_${rec.id}`);
+      const existingMeta = existingMetaById.get(docId);
+      const targetEmails = computeAssignedTeacherEmailsForStudent(rec, assignments);
+
+      const currentEmailsSorted = (existingMeta?.existingEmails || []).slice().sort().join(',');
+      const nextEmailsSorted = targetEmails.slice().sort().join(',');
+      if (existingMeta && currentEmailsSorted === nextEmailsSorted) {
+        continue;
+      }
+
+      const docRef = doc(db, 'students', docId);
+      const basePayload = buildStudentFirestorePayload(rec, currentUser.uid, targetEmails);
+
+      batch.set(docRef, {
+        ...basePayload,
+        createdAt: existingMeta?.createdAt || serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      batchWrites += 1;
+      updatedCount += 1;
+    }
+
+    if (batchWrites > 0) {
+      try {
+        await batch.commit();
+      } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'students');
+      }
+    }
+  }
+
+  return updatedCount;
+}
+
+/**
+ * Admin: Real-time subscription to all teacher assignments created by the logged-in school admin.
+ */
+export function subscribeToOwnerTeacherAssignments(
+  user: User,
+  onData: (assignments: TeacherAssignment[]) => void
+): () => void {
+  const q = query(collection(db, 'teacherAssignments'), where('ownerId', '==', user.uid));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list = snapshot.docs.map((d) =>
+        mapDocToTeacherAssignment(d.id, d.data() as Record<string, unknown>)
+      );
+      list.sort((a, b) => a.schoolCode.localeCompare(b.schoolCode) || a.teacherName.localeCompare(b.teacherName));
+      onData(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'teacherAssignments');
+    }
+  );
+}
+
+/**
+ * Teacher: Real-time subscription to assignments matching the logged-in user's Google Email.
+ */
+export function subscribeToMyTeacherAssignments(
+  user: User,
+  onData: (assignments: TeacherAssignment[]) => void
+): () => void {
+  const email = (user.email || '').trim().toLowerCase();
+  if (!email) {
+    onData([]);
+    return () => {};
+  }
+
+  const q = query(collection(db, 'teacherAssignments'), where('teacherEmail', '==', email));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list = snapshot.docs
+        .map((d) => mapDocToTeacherAssignment(d.id, d.data() as Record<string, unknown>))
+        .filter((a) => a.active);
+      onData(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'teacherAssignments');
+    }
+  );
+}
+
+/**
+ * Teacher: Real-time subscription to ONLY the students where this teacher's email is authorized.
+ */
+export function subscribeToTeacherAssignedStudents(
+  user: User,
+  onData: (records: AdmitCardRecord[]) => void
+): () => void {
+  const email = (user.email || '').trim().toLowerCase();
+  if (!email) {
+    onData([]);
+    return () => {};
+  }
+
+  const q = query(
+    collection(db, 'students'),
+    where('assignedTeacherEmails', 'array-contains', email)
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const loaded = snapshot.docs.map((d) =>
+        mapFirestoreDocToAdmitCardRecord(d.id, d.data() as Record<string, unknown>)
+      );
+      loaded.sort((a, b) => a.serialNo - b.serialNo);
+      onData(loaded);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'students');
+    }
+  );
+}
+
+/**
+ * Teacher (Tier-2): Updates ONLY the student's marks (`interSentUp`, `matricSentUp`, `updatedAt`)
+ * strictly complying with Firestore Security Rules Tier-2 allowlist.
+ */
+export async function updateStudentMarksAsTeacher(record: AdmitCardRecord): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Please sign in with Google to save marks.');
+  }
+  const docId = record.firestoreDocId;
+  if (!docId) {
+    throw new Error('Student cloud document reference is missing.');
+  }
+
+  const path = `students/${docId}`;
+  const docRef = doc(db, 'students', docId);
+  try {
+    await updateDoc(docRef, {
+      interSentUp: sanitizeInterSentUpForFirestore(record),
+      matricSentUp: sanitizeMatricSentUpForFirestore(record),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
 }
 
 export async function signInWithGooglePopup(): Promise<User> {
@@ -351,3 +709,4 @@ export async function signOutFromFirebase(): Promise<void> {
 
 export { onAuthStateChanged };
 export type { User };
+
