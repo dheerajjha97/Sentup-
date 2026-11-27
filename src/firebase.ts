@@ -21,6 +21,7 @@ import {
   where,
   onSnapshot,
   serverTimestamp,
+  Timestamp,
   writeBatch,
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -240,12 +241,13 @@ export async function upsertStudentInFirestore(
   const basePayload = buildStudentFirestorePayload(record, currentUser.uid, computedEmails);
 
   let exists = false;
-  let existingCreatedAt: unknown = null;
+  let existingCreatedAt: Timestamp | null = null;
   try {
     const snap = await getDoc(docRef);
     exists = snap.exists();
     if (exists) {
-      existingCreatedAt = snap.data()?.createdAt ?? null;
+      const rawCreatedAt = snap.data()?.createdAt;
+      existingCreatedAt = rawCreatedAt instanceof Timestamp ? rawCreatedAt : null;
     }
   } catch (error) {
     console.warn('Pre-write document check failed, defaulting to creation mode:', error);
@@ -532,60 +534,94 @@ export async function syncTeacherAccessToOwnerStudents(
   const currentUser = auth.currentUser;
   if (!currentUser || records.length === 0) return 0;
 
-  // Fetch existing owner docs once to know exact doc presence and original createdAt timestamps
-  const existingMetaById = new Map<string, { createdAt: unknown; existingEmails: string[] }>();
+  // Fetch existing owner docs once to know exact doc presence and original valid Timestamp createdAt
+  const existingMetaById = new Map<
+    string,
+    { createdAt: Timestamp | null; existingEmails: string[]; rawKeys: string[] }
+  >();
   try {
     const q = query(collection(db, 'students'), where('ownerId', '==', currentUser.uid));
     const snap = await getDocs(q);
     snap.docs.forEach((d) => {
       const data = d.data();
+      const rawCreatedAt = data.createdAt;
       existingMetaById.set(d.id, {
-        createdAt: data.createdAt ?? null,
+        createdAt: rawCreatedAt instanceof Timestamp ? rawCreatedAt : null,
         existingEmails: Array.isArray(data.assignedTeacherEmails)
           ? data.assignedTeacherEmails.map((e: unknown) => String(e).toLowerCase())
           : [],
+        rawKeys: Object.keys(data),
       });
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'students');
   }
 
-  let updatedCount = 0;
-  const CHUNK_SIZE = 350;
+  interface PendingSyncWrite {
+    docId: string;
+    payload: Record<string, unknown>;
+  }
 
-  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
-    const slice = records.slice(i, i + CHUNK_SIZE);
-    const batch = writeBatch(db);
-    let batchWrites = 0;
+  const pendingWrites: PendingSyncWrite[] = [];
+  const seenDocIds = new Set<string>();
 
-    for (const rec of slice) {
-      const docId = rec.firestoreDocId || sanitizeDocId(`${currentUser.uid}_${rec.id}`);
-      const existingMeta = existingMetaById.get(docId);
-      const targetEmails = computeAssignedTeacherEmailsForStudent(rec, assignments);
+  for (const rec of records) {
+    const rawDocId = rec.firestoreDocId || sanitizeDocId(`${currentUser.uid}_${rec.id}`);
+    const docId = /^[a-zA-Z0-9_-]{1,256}$/.test(rawDocId) ? rawDocId : sanitizeDocId(rawDocId);
+    if (seenDocIds.has(docId)) continue;
+    seenDocIds.add(docId);
 
-      const currentEmailsSorted = (existingMeta?.existingEmails || []).slice().sort().join(',');
-      const nextEmailsSorted = targetEmails.slice().sort().join(',');
-      if (existingMeta && currentEmailsSorted === nextEmailsSorted) {
-        continue;
-      }
+    const existingMeta = existingMetaById.get(docId);
+    const targetEmails = computeAssignedTeacherEmailsForStudent(rec, assignments);
 
-      const docRef = doc(db, 'students', docId);
-      const basePayload = buildStudentFirestorePayload(rec, currentUser.uid, targetEmails);
+    const currentEmailsSorted = (existingMeta?.existingEmails || []).slice().sort().join(',');
+    const nextEmailsSorted = targetEmails.slice().sort().join(',');
+    if (existingMeta && currentEmailsSorted === nextEmailsSorted) {
+      continue;
+    }
 
-      batch.set(docRef, {
+    const basePayload = buildStudentFirestorePayload(rec, currentUser.uid, targetEmails);
+    pendingWrites.push({
+      docId,
+      payload: {
         ...basePayload,
         createdAt: existingMeta?.createdAt || serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
-      batchWrites += 1;
-      updatedCount += 1;
+      },
+    });
+  }
+
+  let updatedCount = 0;
+  const CHUNK_SIZE = 300;
+
+  for (let i = 0; i < pendingWrites.length; i += CHUNK_SIZE) {
+    const slice = pendingWrites.slice(i, i + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    for (const item of slice) {
+      batch.set(doc(db, 'students', item.docId), item.payload);
     }
 
-    if (batchWrites > 0) {
-      try {
-        await batch.commit();
-      } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, 'students');
+    try {
+      await batch.commit();
+      updatedCount += slice.length;
+    } catch {
+      // Fallback to individual writes so one malformed legacy doc never blocks syncing all other students
+      let firstErr: unknown = null;
+      let firstFailPath = 'students';
+      for (const item of slice) {
+        try {
+          await setDoc(doc(db, 'students', item.docId), item.payload);
+          updatedCount += 1;
+        } catch (docErr) {
+          if (!firstErr) {
+            firstErr = docErr;
+            firstFailPath = `students/${item.docId}`;
+          }
+          console.error(`Failed syncing student doc ${item.docId}:`, docErr);
+        }
+      }
+      if (firstErr && updatedCount === 0) {
+        handleFirestoreError(firstErr, OperationType.UPDATE, firstFailPath);
       }
     }
   }

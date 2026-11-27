@@ -8,7 +8,7 @@ service cloud.firestore {
 
     // Pillar 3: Hardened Global Primitives
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 256 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function incoming() {
@@ -254,20 +254,23 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
 
-      // Pillar 4: Tiered Action-Based Update (Owner vs Assigned Teacher Marks-Only)
+      // Pillar 4: Tiered Action-Based Update (Admin/Owner vs Assigned Teacher Marks-Only)
       allow update: if hasVerifiedEmail()
         && isValidId(studentId)
         && isValidStudent(incoming())
         && incoming().ownerId == existing().ownerId
         && (
-          ('createdAt' in existing() && incoming().createdAt == existing().createdAt)
-          || (!('createdAt' in existing()) && incoming().createdAt == request.time)
+          ('createdAt' in existing() && existing().createdAt is timestamp && incoming().createdAt == existing().createdAt)
+          || (!('createdAt' in existing() && existing().createdAt is timestamp) && incoming().createdAt == request.time)
         )
         && incoming().updatedAt == request.time
         && (
-          // Tier 1: Owner or Admin full record update (also allows cleaning legacy keys on older docs)
+          // Admin escape hatch (still strictly wrapped by isValidStudent(incoming()) above)
+          isAdmin()
+          ||
+          // Tier 1: Owner full record update (also allows cleaning legacy keys on older docs)
           (
-            (existing().ownerId == request.auth.uid || isAdmin())
+            existing().ownerId == request.auth.uid
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'serialNo', 'examType', 'examYear', 'faculty', 'bsebUniqueId',
               'schoolCode', 'schoolName', 'studentName', 'motherName', 'fatherName',
@@ -278,7 +281,9 @@ service cloud.firestore {
               'compulsorySubject4', 'additionalSubject', 'allSubjectsSummary',
               'sourceFileName', 'sourcePageNumber', 'extractionMethod',
               'interSentUp', 'matricSentUp', 'assignedTeacherEmails', 'updatedAt',
-              'createdAt', 'remarks', 'subjectMarks'
+              'createdAt', 'remarks', 'subjectMarks', 'id', 'firestoreDocId',
+              'photoDataUrl', 'signatureDataUrl', 'pagePreviewDataUrl',
+              'userId', 'uploadedAt'
             ])
           )
           ||
