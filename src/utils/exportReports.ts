@@ -17,6 +17,7 @@ import {
   getSubjectMark,
   resolveCustomColumnValue,
 } from './marksAndFormat';
+import { deliverGeneratedPdf } from './pdfPreviewBus';
 
 export interface ExcelExportOptions {
   mode?: ExportFormatMode;
@@ -2267,7 +2268,11 @@ export function exportSentUp12thPdf(
     },
   });
 
-  doc.save(`${filenamePrefix}.pdf`);
+  deliverGeneratedPdf(
+    doc,
+    `${filenamePrefix}.pdf`,
+    '12th Sent-Up Praptank Panji (30-Col)'
+  );
 }
 
 /**
@@ -2494,7 +2499,11 @@ export function exportSentUp10thPdf(
     },
   });
 
-  doc.save(`${filenamePrefix}.pdf`);
+  deliverGeneratedPdf(
+    doc,
+    `${filenamePrefix}.pdf`,
+    '10th Sent-Up Praptank Panji (23-Col)'
+  );
 }
 
 /**
@@ -2771,7 +2780,11 @@ export function exportVocational12thPdf(
     },
   });
 
-  doc.save(`${filenamePrefix}.pdf`);
+  deliverGeneratedPdf(
+    doc,
+    `${filenamePrefix}.pdf`,
+    '12th Vocational Sent-Up Panji'
+  );
 }
 
 /**
@@ -2948,7 +2961,11 @@ export function exportAbsent12thPdf(
     }
   });
 
-  doc.save(`${filenamePrefix}.pdf`);
+  deliverGeneratedPdf(
+    doc,
+    `${filenamePrefix}.pdf`,
+    '12th Absent / Non Sent-Up Students List'
+  );
 }
 
 /**
@@ -3253,7 +3270,10 @@ function generate10th24ColPdf(
     },
   });
 
-  doc.save(`${filenamePrefix}.pdf`);
+  const reportTitle = filenamePrefix.toLowerCase().includes('visually_impaired')
+    ? '10th Visually Impaired Absent List'
+    : '10th Absent / Non Sent-Up Students List';
+  deliverGeneratedPdf(doc, `${filenamePrefix}.pdf`, reportTitle);
 }
 
 /**
@@ -3564,7 +3584,11 @@ export function exportVisuallyImpairedSentUp10thPdf(
     },
   });
 
-  doc.save(`${prefix}.pdf`);
+  deliverGeneratedPdf(
+    doc,
+    `${prefix}.pdf`,
+    '10th Visually Impaired Sent-Up Panji'
+  );
 }
 
 /**
@@ -3833,7 +3857,11 @@ export function exportToPdfReport(
   });
 
   const dateStamp = new Date().toISOString().slice(0, 10);
-  doc.save(`${filenamePrefix}_${records.length}_Students_${dateStamp}.pdf`);
+  deliverGeneratedPdf(
+    doc,
+    `${filenamePrefix}_${records.length}_Students_${dateStamp}.pdf`,
+    'BSEB Admit Card Register Report'
+  );
 }
 
 export interface AttendanceSheetConfig {
@@ -4149,7 +4177,11 @@ export function exportAttendanceSheetPdf(
   const classSlug = sanitizeFileSegment(config.classLabel.includes('10') ? '10th' : '12th');
   const subjSlug = sanitizeFileSegment(config.subjectLabel);
   const dateSlug = config.examDate || new Date().toISOString().slice(0, 10);
-  doc.save(`Attendance_${classSlug}_${subjSlug}_${dateSlug}.pdf`);
+  deliverGeneratedPdf(
+    doc,
+    `Attendance_${classSlug}_${subjSlug}_${dateSlug}.pdf`,
+    `Attendance Sheet — ${config.subjectLabel}`
+  );
 }
 
 /**

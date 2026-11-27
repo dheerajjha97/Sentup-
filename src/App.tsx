@@ -94,6 +94,7 @@ import { TeacherMarksPortal } from './components/TeacherMarksPortal';
 import { LoginPage, PortalRole } from './components/LoginPage';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { PdfPreviewModal } from './components/PdfPreviewModal';
 import { computeAssignedTeacherEmailsForStudent } from './utils/teacherSubjectMatcher';
 
 export type SchoolModule = 'INTERMEDIATE' | 'MATRIC';
@@ -2620,6 +2621,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      <PdfPreviewModal />
       <OfflineIndicator />
     </MotionConfig>
   );
