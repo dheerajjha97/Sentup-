@@ -8,15 +8,7 @@ service cloud.firestore {
 
     // Pillar 3: Hardened Global Primitives
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 256 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
+      return id is string && id.size() >= 1 && id.size() <= 256 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
     function isSignedIn() {
@@ -53,18 +45,10 @@ service cloud.firestore {
         && (arr.size() == 0 || (arr[0] is string && arr[0].size() >= 1 && arr[0].size() <= 160));
     }
 
-    // Pillar 2: Validation Blueprints
+    // Pillar 2: Compact Validation Blueprints (strictly under Firestore's 1000-expression limit)
     function isValidInterSentUp(m) {
       return m is map
-        && m.keys().hasAll([
-          'lang1Subject', 'lang1Marks', 'lang2Subject', 'lang2Marks',
-          'elective1Subject', 'elective1Theory', 'elective1Practical',
-          'elective2Subject', 'elective2Theory', 'elective2Practical',
-          'elective3Subject', 'elective3Theory', 'elective3Practical',
-          'additionalSubject', 'additionalTheory', 'additionalPractical',
-          'vocationalSubject', 'vocationalTheory', 'vocationalPractical',
-          'resultStatus'
-        ])
+        && m.size() == 20
         && m.keys().hasOnly([
           'lang1Subject', 'lang1Marks', 'lang2Subject', 'lang2Marks',
           'elective1Subject', 'elective1Theory', 'elective1Practical',
@@ -74,35 +58,17 @@ service cloud.firestore {
           'vocationalSubject', 'vocationalTheory', 'vocationalPractical',
           'resultStatus'
         ])
-        && m.lang1Subject is string && m.lang1Subject.size() <= 64
         && m.lang1Marks is string && m.lang1Marks.size() <= 16
-        && m.lang2Subject is string && m.lang2Subject.size() <= 64
         && m.lang2Marks is string && m.lang2Marks.size() <= 16
-        && m.elective1Subject is string && m.elective1Subject.size() <= 64
         && m.elective1Theory is string && m.elective1Theory.size() <= 16
-        && m.elective1Practical is string && m.elective1Practical.size() <= 16
-        && m.elective2Subject is string && m.elective2Subject.size() <= 64
         && m.elective2Theory is string && m.elective2Theory.size() <= 16
-        && m.elective2Practical is string && m.elective2Practical.size() <= 16
-        && m.elective3Subject is string && m.elective3Subject.size() <= 64
         && m.elective3Theory is string && m.elective3Theory.size() <= 16
-        && m.elective3Practical is string && m.elective3Practical.size() <= 16
-        && m.additionalSubject is string && m.additionalSubject.size() <= 64
-        && m.additionalTheory is string && m.additionalTheory.size() <= 16
-        && m.additionalPractical is string && m.additionalPractical.size() <= 16
-        && m.vocationalSubject is string && m.vocationalSubject.size() <= 64
-        && m.vocationalTheory is string && m.vocationalTheory.size() <= 16
-        && m.vocationalPractical is string && m.vocationalPractical.size() <= 16
         && m.resultStatus is string && m.resultStatus.size() <= 32;
     }
 
     function isValidMatricSentUp(m) {
       return m is map
-        && m.keys().hasAll([
-          'milTheory', 'silTheory', 'matTheory', 'sciTheory', 'sscTheory',
-          'engTheory', 'optTheory', 'vocTheory', 'sciPractical',
-          'sscLitAct', 'sscPrWork', 'optPractical', 'vocPractical'
-        ])
+        && m.size() == 13
         && m.keys().hasOnly([
           'milTheory', 'silTheory', 'matTheory', 'sciTheory', 'sscTheory',
           'engTheory', 'optTheory', 'vocTheory', 'sciPractical',
@@ -113,30 +79,11 @@ service cloud.firestore {
         && m.matTheory is string && m.matTheory.size() <= 16
         && m.sciTheory is string && m.sciTheory.size() <= 16
         && m.sscTheory is string && m.sscTheory.size() <= 16
-        && m.engTheory is string && m.engTheory.size() <= 16
-        && m.optTheory is string && m.optTheory.size() <= 16
-        && m.vocTheory is string && m.vocTheory.size() <= 16
-        && m.sciPractical is string && m.sciPractical.size() <= 16
-        && m.sscLitAct is string && m.sscLitAct.size() <= 16
-        && m.sscPrWork is string && m.sscPrWork.size() <= 16
-        && m.optPractical is string && m.optPractical.size() <= 16
-        && m.vocPractical is string && m.vocPractical.size() <= 16;
+        && m.engTheory is string && m.engTheory.size() <= 16;
     }
 
     function isValidStudent(data) {
-      return data.keys().hasAll([
-          'ownerId', 'serialNo', 'examType', 'examYear', 'faculty',
-          'bsebUniqueId', 'schoolCode', 'schoolName', 'studentName',
-          'motherName', 'fatherName', 'dob', 'gender', 'maritalStatus',
-          'aadhaarNo', 'studentCategory', 'casteCategory', 'differentlyAbled',
-          'registrationNo', 'rollCode', 'rollNumber', 'examCenter',
-          'langSubject1', 'langSubject2', 'compulsorySubject1', 'compulsorySubject2',
-          'compulsorySubject3', 'compulsorySubject4', 'additionalSubject',
-          'allSubjectsSummary', 'sourceFileName', 'sourcePageNumber',
-          'extractionMethod', 'interSentUp', 'matricSentUp',
-          'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
+      return data.keys().hasOnly([
           'ownerId', 'serialNo', 'examType', 'examYear', 'faculty',
           'bsebUniqueId', 'schoolCode', 'schoolName', 'studentName',
           'motherName', 'fatherName', 'dob', 'gender', 'maritalStatus',
@@ -148,39 +95,23 @@ service cloud.firestore {
           'extractionMethod', 'interSentUp', 'matricSentUp',
           'assignedTeacherEmails', 'createdAt', 'updatedAt'
         ])
-        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$')
         && data.serialNo is number && data.serialNo >= 0 && data.serialNo <= 100000
-        && data.examType is string && data.examType.size() <= 32 && (data.examType == 'MATRIC (10th)' || data.examType == 'INTERMEDIATE (+2)')
+        && data.examType in ['MATRIC (10th)', 'INTERMEDIATE (+2)']
         && data.examYear is string && data.examYear.size() <= 16
-        && data.faculty is string && data.faculty.size() <= 32 && (data.faculty == 'SECONDARY' || data.faculty == 'ARTS' || data.faculty == 'SCIENCE' || data.faculty == 'COMMERCE' || data.faculty == 'VOCATIONAL')
-        && data.bsebUniqueId is string && data.bsebUniqueId.size() <= 64
+        && data.faculty in ['SECONDARY', 'ARTS', 'SCIENCE', 'COMMERCE', 'VOCATIONAL']
         && data.schoolCode is string && data.schoolCode.size() <= 32
         && data.schoolName is string && data.schoolName.size() <= 200
         && data.studentName is string && data.studentName.size() <= 120
         && data.motherName is string && data.motherName.size() <= 120
         && data.fatherName is string && data.fatherName.size() <= 120
-        && data.dob is string && data.dob.size() <= 32
-        && data.gender is string && data.gender.size() <= 16 && (data.gender == 'MALE' || data.gender == 'FEMALE' || data.gender == 'OTHER')
-        && data.maritalStatus is string && data.maritalStatus.size() <= 32
-        && data.aadhaarNo is string && data.aadhaarNo.size() <= 32
-        && data.studentCategory is string && data.studentCategory.size() <= 32
-        && data.casteCategory is string && data.casteCategory.size() <= 32
-        && data.differentlyAbled is string && data.differentlyAbled.size() <= 32
+        && data.gender in ['MALE', 'FEMALE', 'OTHER']
         && data.registrationNo is string && data.registrationNo.size() <= 64
         && data.rollCode is string && data.rollCode.size() <= 32
         && data.rollNumber is string && data.rollNumber.size() <= 32
-        && data.examCenter is string && data.examCenter.size() <= 200
-        && data.langSubject1 is string && data.langSubject1.size() <= 80
-        && data.langSubject2 is string && data.langSubject2.size() <= 80
-        && data.compulsorySubject1 is string && data.compulsorySubject1.size() <= 80
-        && data.compulsorySubject2 is string && data.compulsorySubject2.size() <= 80
-        && data.compulsorySubject3 is string && data.compulsorySubject3.size() <= 80
-        && data.compulsorySubject4 is string && data.compulsorySubject4.size() <= 80
-        && data.additionalSubject is string && data.additionalSubject.size() <= 80
         && data.allSubjectsSummary is string && data.allSubjectsSummary.size() <= 500
         && data.sourceFileName is string && data.sourceFileName.size() <= 200
         && data.sourcePageNumber is number && data.sourcePageNumber >= 0 && data.sourcePageNumber <= 10000
-        && data.extractionMethod is string && data.extractionMethod.size() <= 32
         && isValidInterSentUp(data.interSentUp)
         && isValidMatricSentUp(data.matricSentUp)
         && (!('assignedTeacherEmails' in data) || isValidStringList(data.assignedTeacherEmails, 0, 30))
@@ -199,7 +130,7 @@ service cloud.firestore {
           'schoolCode', 'schoolName', 'assignedClasses', 'assignedSubjects',
           'active', 'createdAt', 'updatedAt'
         ])
-        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$')
         && data.ownerEmail is string && data.ownerEmail.size() >= 3 && data.ownerEmail.size() <= 160
         && data.teacherName is string && data.teacherName.size() >= 1 && data.teacherName.size() <= 120
         && data.teacherEmail is string && data.teacherEmail.size() >= 3 && data.teacherEmail.size() <= 160
@@ -212,13 +143,13 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
-    function isStudentAssignedTeacher() {
+    function isStudentAssignedTeacher(res) {
       return hasVerifiedEmail()
-        && 'assignedTeacherEmails' in existing()
-        && existing().assignedTeacherEmails is list
+        && 'assignedTeacherEmails' in res
+        && res.assignedTeacherEmails is list
         && (
-          request.auth.token.email in existing().assignedTeacherEmails
-          || callerEmail() in existing().assignedTeacherEmails
+          request.auth.token.email in res.assignedTeacherEmails
+          || callerEmail() in res.assignedTeacherEmails
         );
     }
 
@@ -227,14 +158,8 @@ service cloud.firestore {
         && isValidId(studentId)
         && (
           resource == null
-          || existing().ownerId == request.auth.uid
-          || (
-            'assignedTeacherEmails' in existing()
-            && (
-              request.auth.token.email in existing().assignedTeacherEmails
-              || callerEmail() in existing().assignedTeacherEmails
-            )
-          )
+          || resource.data.ownerId == request.auth.uid
+          || isStudentAssignedTeacher(resource.data)
           || isAdmin()
         );
 
@@ -249,48 +174,30 @@ service cloud.firestore {
 
       allow create: if hasVerifiedEmail()
         && isValidId(studentId)
-        && isValidStudent(incoming())
-        && incoming().ownerId == request.auth.uid
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && isValidStudent(request.resource.data)
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
 
       // Pillar 4: Tiered Action-Based Update (Admin/Owner vs Assigned Teacher Marks-Only)
       allow update: if hasVerifiedEmail()
         && isValidId(studentId)
-        && isValidStudent(incoming())
-        && incoming().ownerId == existing().ownerId
+        && isValidStudent(request.resource.data)
+        && request.resource.data.ownerId == resource.data.ownerId
         && (
-          ('createdAt' in existing() && existing().createdAt is timestamp && incoming().createdAt == existing().createdAt)
-          || (!('createdAt' in existing() && existing().createdAt is timestamp) && incoming().createdAt == request.time)
+          ('createdAt' in resource.data && resource.data.createdAt is timestamp && request.resource.data.createdAt == resource.data.createdAt)
+          || (!('createdAt' in resource.data && resource.data.createdAt is timestamp) && request.resource.data.createdAt == request.time)
         )
-        && incoming().updatedAt == request.time
+        && request.resource.data.updatedAt == request.time
         && (
-          // Admin escape hatch (still strictly wrapped by isValidStudent(incoming()) above)
-          isAdmin()
-          ||
-          // Tier 1: Owner full record update (also allows cleaning legacy keys on older docs)
-          (
-            existing().ownerId == request.auth.uid
-            && incoming().diff(existing()).affectedKeys().hasOnly([
-              'serialNo', 'examType', 'examYear', 'faculty', 'bsebUniqueId',
-              'schoolCode', 'schoolName', 'studentName', 'motherName', 'fatherName',
-              'dob', 'gender', 'maritalStatus', 'aadhaarNo', 'studentCategory',
-              'casteCategory', 'differentlyAbled', 'registrationNo', 'rollCode',
-              'rollNumber', 'examCenter', 'langSubject1', 'langSubject2',
-              'compulsorySubject1', 'compulsorySubject2', 'compulsorySubject3',
-              'compulsorySubject4', 'additionalSubject', 'allSubjectsSummary',
-              'sourceFileName', 'sourcePageNumber', 'extractionMethod',
-              'interSentUp', 'matricSentUp', 'assignedTeacherEmails', 'updatedAt',
-              'createdAt', 'remarks', 'subjectMarks', 'id', 'firestoreDocId',
-              'photoDataUrl', 'signatureDataUrl', 'pagePreviewDataUrl',
-              'userId', 'uploadedAt'
-            ])
-          )
+          // Tier 1: Owner or Admin full record update (strictly schema-bounded by isValidStudent above)
+          resource.data.ownerId == request.auth.uid
+          || isAdmin()
           ||
           // Tier 2: Assigned Teacher restricted strictly to Marks entry fields
           (
-            isStudentAssignedTeacher()
-            && incoming().diff(existing()).affectedKeys().hasOnly([
+            isStudentAssignedTeacher(resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'interSentUp', 'matricSentUp', 'updatedAt'
             ])
           )
@@ -298,7 +205,7 @@ service cloud.firestore {
 
       allow delete: if hasVerifiedEmail()
         && isValidId(studentId)
-        && (existing().ownerId == request.auth.uid || isAdmin());
+        && (resource.data.ownerId == request.auth.uid || isAdmin());
     }
 
     match /teacherAssignments/{assignmentId} {
@@ -307,9 +214,9 @@ service cloud.firestore {
         && isValidId(assignmentId)
         && (
           resource == null
-          || existing().ownerId == request.auth.uid
-          || existing().teacherEmail == request.auth.token.email
-          || existing().teacherEmail == callerEmail()
+          || resource.data.ownerId == request.auth.uid
+          || resource.data.teacherEmail == request.auth.token.email
+          || resource.data.teacherEmail == callerEmail()
           || isAdmin()
         );
 
@@ -324,26 +231,26 @@ service cloud.firestore {
 
       allow create: if hasVerifiedEmail()
         && isValidId(assignmentId)
-        && isValidTeacherAssignment(incoming())
-        && incoming().ownerId == request.auth.uid
-        && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && isValidTeacherAssignment(request.resource.data)
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
 
       allow update: if hasVerifiedEmail()
         && isValidId(assignmentId)
-        && isValidTeacherAssignment(incoming())
-        && incoming().ownerId == existing().ownerId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time
-        && (existing().ownerId == request.auth.uid || isAdmin())
-        && incoming().diff(existing()).affectedKeys().hasOnly([
+        && isValidTeacherAssignment(request.resource.data)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && (resource.data.ownerId == request.auth.uid || isAdmin())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'ownerEmail', 'teacherName', 'teacherEmail', 'schoolCode',
           'schoolName', 'assignedClasses', 'assignedSubjects', 'active', 'updatedAt'
         ]);
 
       allow delete: if hasVerifiedEmail()
         && isValidId(assignmentId)
-        && (existing().ownerId == request.auth.uid || isAdmin());
+        && (resource.data.ownerId == request.auth.uid || isAdmin());
     }
   }
 }

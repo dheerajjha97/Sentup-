@@ -34,10 +34,9 @@ interface TeacherMarksPortalProps {
   user: User;
   assignments: TeacherAssignment[];
   assignedStudents: AdmitCardRecord[];
+  isLoadingAssignments?: boolean;
   isLoadingStudents?: boolean;
   studentsError?: string;
-  canSwitchToAdmin: boolean;
-  onSwitchToAdmin?: () => void;
   onSignOut: () => Promise<void>;
 }
 
@@ -71,10 +70,9 @@ export const TeacherMarksPortal: React.FC<TeacherMarksPortalProps> = ({
   user,
   assignments,
   assignedStudents,
+  isLoadingAssignments = false,
   isLoadingStudents = false,
   studentsError = '',
-  canSwitchToAdmin,
-  onSwitchToAdmin,
   onSignOut,
 }) => {
   // Unique schools assigned to this teacher (normalized school codes)
@@ -624,14 +622,14 @@ export const TeacherMarksPortal: React.FC<TeacherMarksPortalProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Top Teacher Identity & Actions Bar */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+      {/* Top Teacher Identity & Actions Bar (Strictly Separate Teacher Module) */}
+      <section className="rounded-2xl border border-blue-100 bg-white p-4 sm:p-5 shadow-xs">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+              <ShieldCheck className="h-5 w-5 text-blue-600 shrink-0" />
               <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900">
-                Teacher Marks Entry Portal
+                Teacher Marks Portal
               </h1>
             </div>
             <p className="mt-0.5 text-xs text-slate-600 font-mono">
@@ -641,35 +639,27 @@ export const TeacherMarksPortal: React.FC<TeacherMarksPortalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {canSwitchToAdmin && onSwitchToAdmin && (
+            {assignedSchools.length > 0 && (
               <button
                 type="button"
-                onClick={onSwitchToAdmin}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-xs font-semibold text-indigo-800 hover:bg-indigo-100 whitespace-nowrap shrink-0"
+                onClick={handleSaveAllDirty}
+                disabled={dirtyDocIds.length === 0 || isSavingAll}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-45 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
               >
-                <Building2 className="h-3.5 w-3.5" />
-                <span>Admin Mode</span>
+                <Save className="h-3.5 w-3.5" />
+                <span>
+                  {isSavingAll
+                    ? 'Saving...'
+                    : dirtyDocIds.length > 0
+                    ? `Save All Changes (${dirtyDocIds.length})`
+                    : 'All Saved'}
+                </span>
               </button>
             )}
             <button
               type="button"
-              onClick={handleSaveAllDirty}
-              disabled={dirtyDocIds.length === 0 || isSavingAll}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-45 whitespace-nowrap shrink-0"
-            >
-              <Save className="h-3.5 w-3.5" />
-              <span>
-                {isSavingAll
-                  ? 'Saving...'
-                  : dirtyDocIds.length > 0
-                  ? `Save All Changes (${dirtyDocIds.length})`
-                  : 'All Saved'}
-              </span>
-            </button>
-            <button
-              type="button"
               onClick={onSignOut}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
             >
               <LogOut className="h-3.5 w-3.5" />
               <span>Sign Out</span>
@@ -702,8 +692,46 @@ export const TeacherMarksPortal: React.FC<TeacherMarksPortalProps> = ({
         )}
       </section>
 
-      {/* School, Class & Subject Selector Strip */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+      {isLoadingAssignments ? (
+        <section className="rounded-2xl border border-blue-100 bg-white p-10 text-center shadow-xs">
+          <Loader2 className="mx-auto h-7 w-7 animate-spin text-blue-600" />
+          <p className="mt-3 text-sm font-semibold text-slate-900">
+            Loading your assigned schools &amp; subjects...
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Checking assignments for <span className="font-mono">{user.email}</span>
+          </p>
+        </section>
+      ) : assignedSchools.length === 0 ? (
+        <section className="rounded-2xl border border-blue-100 bg-white p-8 sm:p-10 text-center shadow-xs max-w-xl mx-auto">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+            <BookOpen className="h-6 w-6" />
+          </div>
+          <h2 className="mt-4 text-base sm:text-lg font-bold text-slate-900">
+            No Subject Assigned Yet
+          </h2>
+          <p className="mt-2 text-xs sm:text-sm text-slate-600 leading-relaxed">
+            Aapke Google account{' '}
+            <span className="font-mono font-semibold text-slate-900">{user.email}</span> par abhi
+            koi School Code ya Subject assign nahi hai. Apne School Admin se{' '}
+            <span className="font-semibold text-slate-900">Assign Teachers</span> panel me isi
+            email par class aur subject assign karne ko kahein.
+          </p>
+          <div className="mt-6 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Back to Login Screen</span>
+            </button>
+          </div>
+        </section>
+      ) : (
+        <>
+          {/* School, Class & Subject Selector Strip */}
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
           {/* School */}
           <div className="lg:col-span-3">
@@ -1024,6 +1052,8 @@ export const TeacherMarksPortal: React.FC<TeacherMarksPortalProps> = ({
               </table>
             </div>
           </section>
+        </>
+      )}
         </>
       )}
     </div>
