@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Printer,
   RotateCcw,
@@ -10,8 +10,6 @@ import {
   School,
   Mail,
   Scissors,
-  Upload,
-  X,
   Stamp,
   FolderArchive,
   Loader2,
@@ -219,7 +217,6 @@ export const IntermediateLetterPadView: React.FC<IntermediateLetterPadViewProps>
     return schools.length === 1 ? schools[0] : null;
   }, [schools, selectedSchoolCode]);
 
-  const logoInputRef = useRef<HTMLInputElement | null>(null);
   const [zipStatus, setZipStatus] = useState<string>('');
 
   const handlePrint = () => {
@@ -242,36 +239,6 @@ export const IntermediateLetterPadView: React.FC<IntermediateLetterPadViewProps>
     } finally {
       setZipStatus('');
     }
-  };
-
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const src = typeof reader.result === 'string' ? reader.result : '';
-      if (!src) return;
-      const img = new Image();
-      img.onload = () => {
-        const maxDim = 220;
-        const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
-        const w = Math.max(1, Math.round(img.width * scale));
-        const h = Math.max(1, Math.round(img.height * scale));
-        const canvas = document.createElement('canvas');
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, w, h);
-          const dataUrl = canvas.toDataURL('image/png');
-          updateProfile('headerLogoDataUrl', dataUrl);
-          updateProfile('headerShowEmblem', true);
-        }
-      };
-      img.src = src;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
   };
 
   const isInter = classMode === 'INTERMEDIATE';
@@ -783,46 +750,6 @@ export const IntermediateLetterPadView: React.FC<IntermediateLetterPadViewProps>
                       >
                         B&amp;W
                       </button>
-                    </div>
-                  </div>
-
-                  {/* Emblem Toggle + Custom School Logo Upload */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                    <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={profile.headerShowEmblem}
-                        onChange={(e) => updateProfile('headerShowEmblem', e.target.checked)}
-                        className="h-3.5 w-3.5 rounded border-slate-300 accent-indigo-600"
-                      />
-                      <span>Show Logo / Emblem</span>
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        ref={logoInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={handleLogoUpload}
-                        className="hidden"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => logoInputRef.current?.click()}
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
-                      >
-                        <Upload className="h-3 w-3" />
-                        <span>{profile.headerLogoDataUrl ? 'Change Logo' : 'Upload Logo'}</span>
-                      </button>
-                      {profile.headerLogoDataUrl && (
-                        <button
-                          type="button"
-                          onClick={() => updateProfile('headerLogoDataUrl', '')}
-                          title="Reset to built-in emblem"
-                          className="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white p-1 text-slate-500 hover:text-rose-700 cursor-pointer"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
                     </div>
                   </div>
 
@@ -1435,116 +1362,31 @@ export const IntermediateLetterPadView: React.FC<IntermediateLetterPadViewProps>
                   </div>
                 )}
 
-                {/* Main Banner: Emblem/Logo + Centered Official School Name & Block/District */}
-                <div className="flex items-center justify-between gap-3">
-                  {profile.headerShowEmblem && (
-                    <div className="w-16 h-16 shrink-0 flex items-center justify-center">
-                      {profile.headerLogoDataUrl ? (
-                        <img
-                          src={profile.headerLogoDataUrl}
-                          alt="School Logo"
-                          className="max-h-16 max-w-16 object-contain"
-                        />
-                      ) : (
-                        <svg
-                          viewBox="0 0 80 80"
-                          className="h-15 w-15"
-                          aria-label="Official School Education Emblem"
-                        >
-                          <circle
-                            cx="40"
-                            cy="40"
-                            r="36"
-                            fill="none"
-                            stroke={isColorHeader ? '#881337' : '#000000'}
-                            strokeWidth="2.4"
-                          />
-                          <circle
-                            cx="40"
-                            cy="40"
-                            r="31"
-                            fill="none"
-                            stroke={isColorHeader ? '#1e3a8a' : '#000000'}
-                            strokeWidth="1"
-                            strokeDasharray="2.2 2"
-                          />
-                          {/* Sun / Flame of Knowledge */}
-                          <circle
-                            cx="40"
-                            cy="27"
-                            r="6.5"
-                            fill={isColorHeader ? '#b45309' : '#000000'}
-                          />
-                          <g
-                            stroke={isColorHeader ? '#b45309' : '#000000'}
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                          >
-                            <line x1="40" y1="14" x2="40" y2="18" />
-                            <line x1="30" y1="17" x2="32.5" y2="20" />
-                            <line x1="50" y1="17" x2="47.5" y2="20" />
-                            <line x1="25.5" y1="25" x2="29" y2="26" />
-                            <line x1="54.5" y1="25" x2="51" y2="26" />
-                          </g>
-                          {/* Open Book */}
-                          <path
-                            d="M21 44 C28 40, 35 42, 40 46 C45 42, 52 40, 59 44 L59 56 C52 52, 45 54, 40 58 C35 54, 28 52, 21 56 Z"
-                            fill="none"
-                            stroke={isColorHeader ? '#1e3a8a' : '#000000'}
-                            strokeWidth="2.2"
-                            strokeLinejoin="round"
-                          />
-                          <line
-                            x1="40"
-                            y1="46"
-                            x2="40"
-                            y2="58"
-                            stroke={isColorHeader ? '#1e3a8a' : '#000000'}
-                            strokeWidth="1.8"
-                          />
-                          <text
-                            x="40"
-                            y="68"
-                            textAnchor="middle"
-                            fontSize="7.5"
-                            fontWeight="700"
-                            fill={isColorHeader ? '#881337' : '#000000'}
-                          >
-                            विद्या ददाति विनयम्
-                          </text>
-                        </svg>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="flex-1 text-center">
-                    {profile.headerOfficeLine.trim() && (
-                      <div
-                        className={`text-[13px] font-bold tracking-wide ${
-                          isColorHeader ? 'text-[#1e3a8a]' : 'text-black'
-                        }`}
-                      >
-                        {profile.headerOfficeLine.trim()}
-                      </div>
-                    )}
+                {/* Main Banner: Centered Official School Name & Block/District (No Logo) */}
+                <div className="text-center">
+                  {profile.headerOfficeLine.trim() && (
                     <div
-                      className={`text-[23px] sm:text-[26px] font-extrabold tracking-tight leading-[1.22] mt-0.5 ${
-                        isColorHeader ? 'text-[#881337]' : 'text-black'
-                      }`}
-                    >
-                      {profile.schoolNameHindi}
-                    </div>
-                    <div
-                      className={`text-[14.5px] font-bold mt-0.5 ${
+                      className={`text-[13px] font-bold tracking-wide ${
                         isColorHeader ? 'text-[#1e3a8a]' : 'text-black'
                       }`}
                     >
-                      {profile.blockDistrictHindi}
+                      {profile.headerOfficeLine.trim()}
                     </div>
+                  )}
+                  <div
+                    className={`text-[23px] sm:text-[26px] font-extrabold tracking-tight leading-[1.22] mt-0.5 ${
+                      isColorHeader ? 'text-[#881337]' : 'text-black'
+                    }`}
+                  >
+                    {profile.schoolNameHindi}
                   </div>
-
-                  {/* Symmetric spacer when emblem is displayed so title stays mathematically centered */}
-                  {profile.headerShowEmblem && <div className="w-16 shrink-0" />}
+                  <div
+                    className={`text-[14.5px] font-bold mt-0.5 ${
+                      isColorHeader ? 'text-[#1e3a8a]' : 'text-black'
+                    }`}
+                  >
+                    {profile.blockDistrictHindi}
+                  </div>
                 </div>
 
                 {/* Official Codes Bar: School Code | UDISE Code | Est. Year */}

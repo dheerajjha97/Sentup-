@@ -86,7 +86,7 @@ export const DEFAULT_PROFILE_12TH: SavedLetterProfile = {
   headerPhone: '',
   headerEmail: '',
   headerTheme: 'OFFICIAL_COLOR',
-  headerShowEmblem: true,
+  headerShowEmblem: false,
   headerLogoDataUrl: '',
 };
 
@@ -116,7 +116,7 @@ export const DEFAULT_PROFILE_10TH: SavedLetterProfile = {
   headerPhone: '',
   headerEmail: '',
   headerTheme: 'OFFICIAL_COLOR',
-  headerShowEmblem: true,
+  headerShowEmblem: false,
   headerLogoDataUrl: '',
 };
 

@@ -43,20 +43,6 @@ export interface CompletePackOptions {
 const FONT_HINDI = `'Noto Sans Devanagari', 'Mangal', 'Kohinoor Devanagari', sans-serif`;
 const FONT_MONO = `'JetBrains Mono', monospace`;
 
-function loadImageElement(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    if (!src) {
-      resolve(null);
-      return;
-    }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
 function drawWrappedLines(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -108,87 +94,6 @@ function drawRichLine(
     ctx.fillText(seg.text, cursorX, y);
     cursorX += ctx.measureText(seg.text).width;
   });
-}
-
-function drawBuiltInEmblem(
-  ctx: CanvasRenderingContext2D,
-  cx: number,
-  cy: number,
-  radius: number,
-  isColor: boolean
-): void {
-  const primary = isColor ? '#881337' : '#000000';
-  const secondary = isColor ? '#1e3a8a' : '#000000';
-  const accent = isColor ? '#b45309' : '#000000';
-
-  ctx.save();
-  // Outer circle
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.strokeStyle = primary;
-  ctx.lineWidth = radius * 0.065;
-  ctx.stroke();
-
-  // Inner dashed circle
-  ctx.beginPath();
-  ctx.setLineDash([4, 3]);
-  ctx.arc(cx, cy, radius * 0.86, 0, Math.PI * 2);
-  ctx.strokeStyle = secondary;
-  ctx.lineWidth = radius * 0.03;
-  ctx.stroke();
-  ctx.setLineDash([]);
-
-  // Sun / Flame of knowledge
-  ctx.beginPath();
-  ctx.arc(cx, cy - radius * 0.34, radius * 0.17, 0, Math.PI * 2);
-  ctx.fillStyle = accent;
-  ctx.fill();
-
-  // Rays
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = radius * 0.045;
-  ctx.lineCap = 'round';
-  const rayAngles = [-Math.PI / 2, -Math.PI / 2 - 0.55, -Math.PI / 2 + 0.55, -Math.PI / 2 - 1.1, -Math.PI / 2 + 1.1];
-  rayAngles.forEach((angle) => {
-    const r1 = radius * 0.25;
-    const r2 = radius * 0.38;
-    const ox = cx;
-    const oy = cy - radius * 0.34;
-    ctx.beginPath();
-    ctx.moveTo(ox + Math.cos(angle) * r1, oy + Math.sin(angle) * r1);
-    ctx.lineTo(ox + Math.cos(angle) * r2, oy + Math.sin(angle) * r2);
-    ctx.stroke();
-  });
-
-  // Open Book
-  const bx = cx;
-  const by = cy + radius * 0.14;
-  const bw = radius * 0.52;
-  const bh = radius * 0.34;
-  ctx.strokeStyle = secondary;
-  ctx.lineWidth = radius * 0.06;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(bx - bw, by);
-  ctx.quadraticCurveTo(bx - bw * 0.45, by - bh * 0.32, bx, by + bh * 0.12);
-  ctx.quadraticCurveTo(bx + bw * 0.45, by - bh * 0.32, bx + bw, by);
-  ctx.lineTo(bx + bw, by + bh);
-  ctx.quadraticCurveTo(bx + bw * 0.45, by + bh * 0.68, bx, by + bh * 1.1);
-  ctx.quadraticCurveTo(bx - bw * 0.45, by + bh * 0.68, bx - bw, by + bh);
-  ctx.closePath();
-  ctx.stroke();
-
-  ctx.beginPath();
-  ctx.moveTo(bx, by + bh * 0.12);
-  ctx.lineTo(bx, by + bh * 1.1);
-  ctx.stroke();
-
-  // Motto text
-  ctx.fillStyle = primary;
-  ctx.font = `700 ${Math.round(radius * 0.21)}px ${FONT_HINDI}`;
-  ctx.textAlign = 'center';
-  ctx.fillText('विद्या ददाति विनयम्', cx, cy + radius * 0.72);
-  ctx.restore();
 }
 
 function canvasToA4PdfBytes(canvas: HTMLCanvasElement): Uint8Array {
@@ -261,23 +166,7 @@ async function renderLetterPadPdfBytes(params: {
       y += 34;
     }
 
-    // Main Header Row: Emblem/Logo + Centered Title
-    const emblemCenterY = y + 66;
-    if (profile.headerShowEmblem) {
-      const logoImg = profile.headerLogoDataUrl
-        ? await loadImageElement(profile.headerLogoDataUrl)
-        : null;
-      if (logoImg) {
-        const boxSize = 128;
-        const scale = Math.min(boxSize / logoImg.width, boxSize / logoImg.height);
-        const dw = logoImg.width * scale;
-        const dh = logoImg.height * scale;
-        ctx.drawImage(logoImg, sidePad + (boxSize - dw) / 2, y + (boxSize - dh) / 2, dw, dh);
-      } else {
-        drawBuiltInEmblem(ctx, sidePad + 64, emblemCenterY, 58, isColor);
-      }
-    }
-
+    // Main Header Row: Centered Official School Title (No Logo)
     ctx.textAlign = 'center';
     if (profile.headerOfficeLine.trim()) {
       ctx.fillStyle = secondary;
