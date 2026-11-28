@@ -932,12 +932,14 @@ export function parseUploadedExcelTemplateAndMarks(
   }
 
   const rawHeaderRow = rawRows[headerRowIdx] || [];
-  const headers = rawHeaderRow
-    .map((cell, idx) => {
-      const s = cell !== null && cell !== undefined ? String(cell).trim() : '';
-      return s || `Column_${idx + 1}`;
-    })
-    .filter((h) => !h.startsWith('Column_'));
+  const indexedHeaders = rawHeaderRow
+    .map((cell, colIdx) => ({
+      header: cell !== null && cell !== undefined ? String(cell).trim() : '',
+      colIdx,
+    }))
+    .filter((entry) => entry.header !== '');
+
+  const headers = indexedHeaders.map((entry) => entry.header);
 
   const formatConfig: CustomExcelFormatConfig = {
     fileName,
@@ -956,11 +958,14 @@ export function parseUploadedExcelTemplateAndMarks(
     };
   }
 
-  const bsebIdCol = headers.findIndex((h) => /unique\s*id|bseb\s*id|यूनिक/i.test(h));
-  const regNoCol = headers.findIndex((h) => /reg|listing|पंजीयन|सूचीकरण/i.test(h));
-  const nameCol = headers.findIndex((h) =>
-    /^(name|student\s*name|candidate\s*name|परीक्षार्थी का नाम|छात्र का नाम)$/i.test(h.trim())
-  );
+  const bsebIdCol =
+    indexedHeaders.find((entry) => /unique\s*id|bseb\s*id|यूनिक/i.test(entry.header))?.colIdx ?? -1;
+  const regNoCol =
+    indexedHeaders.find((entry) => /reg|listing|पंजीयन|सूचीकरण/i.test(entry.header))?.colIdx ?? -1;
+  const nameCol =
+    indexedHeaders.find((entry) =>
+      /^(name|student\s*name|candidate\s*name|परीक्षार्थी का नाम|छात्र का नाम)$/i.test(entry.header)
+    )?.colIdx ?? -1;
 
   let matchedStudentCount = 0;
   let importedMarksCount = 0;
@@ -988,7 +993,7 @@ export function parseUploadedExcelTemplateAndMarks(
 
     const nextMarks: Record<string, string> = { ...(rec.subjectMarks || {}) };
 
-    headers.forEach((h, colIdx) => {
+    indexedHeaders.forEach(({ header: h, colIdx }) => {
       const rawCell = matchingRow[colIdx];
       if (rawCell === null || rawCell === undefined || String(rawCell).trim() === '') return;
       const cellStr = String(rawCell).trim();

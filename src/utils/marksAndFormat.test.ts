@@ -114,6 +114,35 @@ test('parseUploadedExcelTemplateAndMarks captures custom headers and imports stu
   assert.equal(summary.division, '1st Division');
 });
 
+test('parseUploadedExcelTemplateAndMarks preserves exact column indices when blank/merged headers exist', () => {
+  const studentWithoutMarks: AdmitCardRecord = {
+    ...sampleInterStudent,
+    subjectMarks: {},
+  };
+
+  // Blank header cells at index 0 and index 3 simulate merged/empty template columns
+  const uploadedSheetRows = [
+    ['', 'Sr No', 'BSEB Unique ID', '', 'Student Name', 'Hindi', '', 'English', 'Business Studies', 'Entrepreneurship', 'Accountancy'],
+    ['', 1, '2252233370048', 'EXTRA', 'RANI KUMARI', 84, 'NOTE', 76, 88, 72, 91],
+  ];
+
+  const result = parseUploadedExcelTemplateAndMarks(
+    uploadedSheetRows,
+    [studentWithoutMarks],
+    'Merged_Headers_Format.xlsx',
+    'Sheet1'
+  );
+
+  assert.equal(result.matchedStudentCount, 1);
+  assert.equal(result.importedMarksCount, 5);
+  const marks = result.updatedRecords[0].subjectMarks || {};
+  assert.equal(marks['206 - Hindi'], '84');
+  assert.equal(marks['205 - English'], '76');
+  assert.equal(marks['217 - Business Studies'], '88');
+  assert.equal(marks['218 - Entrepreneurship'], '72');
+  assert.equal(marks['220 - Accountancy'], '91');
+});
+
 test('getEffectiveInterSentUp matches 12th_Sent-Up_Exam.-2025 30-column formula (Theory + Practical = Total & Aggregate)', () => {
   const anishaRow = createBlankStudentRecord(1, 'INTERMEDIATE (+2)', '31337', 'UCHCH MADHYAMIK VIDYALAYA BERUA', 'SCIENCE');
   anishaRow.studentName = 'ANISHA KUMARI';
