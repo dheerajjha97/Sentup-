@@ -27,6 +27,7 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 import {
   AdmitCardRecord,
+  ClerkAssignment,
   ExamType,
   InterSentUpMarks,
   MatricSentUpMarks,
@@ -34,6 +35,7 @@ import {
 } from './types/admitCard';
 import { getEffectiveInterSentUp, getEffectiveMatricSentUp } from './utils/marksAndFormat';
 import {
+  computeAssignedClerkEmailsForStudent,
   computeAssignedTeacherEmailsForStudent,
   normalizeSchoolCode,
 } from './utils/teacherSubjectMatcher';
@@ -165,7 +167,8 @@ export function sanitizeMatricSentUpForFirestore(record: AdmitCardRecord): Matri
 export function buildStudentFirestorePayload(
   record: AdmitCardRecord,
   ownerId: string,
-  assignedTeacherEmails?: string[]
+  assignedTeacherEmails?: string[],
+  assignedClerkEmails?: string[]
 ) {
   const validExamType =
     record.examType === 'MATRIC (10th)' ? 'MATRIC (10th)' : 'INTERMEDIATE (+2)';
@@ -181,6 +184,14 @@ export function buildStudentFirestorePayload(
   const sanitizedEmails = Array.from(
     new Set(
       (assignedTeacherEmails ?? record.assignedTeacherEmails ?? [])
+        .map((e) => clampStr(e, 160).toLowerCase())
+        .filter((e) => e.length >= 3)
+    )
+  ).slice(0, 30);
+
+  const sanitizedClerkEmails = Array.from(
+    new Set(
+      (assignedClerkEmails ?? record.assignedClerkEmails ?? [])
         .map((e) => clampStr(e, 160).toLowerCase())
         .filter((e) => e.length >= 3)
     )
@@ -223,12 +234,14 @@ export function buildStudentFirestorePayload(
     interSentUp: sanitizeInterSentUpForFirestore(record),
     matricSentUp: sanitizeMatricSentUpForFirestore(record),
     assignedTeacherEmails: sanitizedEmails,
+    assignedClerkEmails: sanitizedClerkEmails,
   };
 }
 
 export async function upsertStudentInFirestore(
   record: AdmitCardRecord,
-  activeAssignments?: TeacherAssignment[]
+  activeAssignments?: TeacherAssignment[],
+  activeClerkAssignments?: ClerkAssignment[]
 ): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) return;
@@ -239,7 +252,15 @@ export async function upsertStudentInFirestore(
   const computedEmails = activeAssignments
     ? computeAssignedTeacherEmailsForStudent(record, activeAssignments)
     : record.assignedTeacherEmails;
-  const basePayload = buildStudentFirestorePayload(record, currentUser.uid, computedEmails);
+  const computedClerkEmails = activeClerkAssignments
+    ? computeAssignedClerkEmailsForStudent(record, activeClerkAssignments)
+    : record.assignedClerkEmails;
+  const basePayload = buildStudentFirestorePayload(
+    record,
+    currentUser.uid,
+    computedEmails,
+    computedClerkEmails
+  );
 
   let exists = false;
   let existingCreatedAt: Timestamp | null = null;
@@ -280,13 +301,14 @@ export async function upsertStudentInFirestore(
 
 export async function syncAllStudentsToFirestore(
   records: AdmitCardRecord[],
-  activeAssignments?: TeacherAssignment[]
+  activeAssignments?: TeacherAssignment[],
+  activeClerkAssignments?: ClerkAssignment[]
 ): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser || records.length === 0) return;
 
   for (const rec of records) {
-    await upsertStudentInFirestore(rec, activeAssignments);
+    await upsertStudentInFirestore(rec, activeAssignments, activeClerkAssignments);
   }
 }
 
@@ -331,6 +353,9 @@ function mapFirestoreDocToAdmitCardRecord(
     ownerId: String(data.ownerId || ''),
     assignedTeacherEmails: Array.isArray(data.assignedTeacherEmails)
       ? data.assignedTeacherEmails.map((e) => String(e).toLowerCase())
+      : [],
+    assignedClerkEmails: Array.isArray(data.assignedClerkEmails)
+      ? data.assignedClerkEmails.map((e) => String(e).toLowerCase())
       : [],
     serialNo: Number(data.serialNo) || 1,
     examType: data.examType === 'MATRIC (10th)' ? 'MATRIC (10th)' : 'INTERMEDIATE (+2)',
@@ -524,13 +549,14 @@ export async function deleteTeacherAssignmentFromFirestore(assignmentId: string)
 }
 
 /**
- * Admin: Synchronizes `assignedTeacherEmails` on all owner student documents in Firestore
- * whenever teacher assignments are created, edited, paused, or removed.
+ * Admin: Synchronizes `assignedTeacherEmails` and `assignedClerkEmails` on all owner student documents in Firestore
+ * whenever teacher or clerk assignments are created, edited, paused, or removed.
  * Queries existing docs first so `createdAt` is preserved and legacy docs are cleanly normalized.
  */
 export async function syncTeacherAccessToOwnerStudents(
   records: AdmitCardRecord[],
-  assignments: TeacherAssignment[]
+  assignments: TeacherAssignment[],
+  clerkAssignments?: ClerkAssignment[]
 ): Promise<number> {
   const currentUser = auth.currentUser;
   if (!currentUser || records.length === 0) return 0;
@@ -538,7 +564,12 @@ export async function syncTeacherAccessToOwnerStudents(
   // Fetch existing owner docs once to know exact doc presence and original valid Timestamp createdAt
   const existingMetaById = new Map<
     string,
-    { createdAt: Timestamp | null; existingEmails: string[]; rawKeys: string[] }
+    {
+      createdAt: Timestamp | null;
+      existingEmails: string[];
+      existingClerkEmails: string[];
+      rawKeys: string[];
+    }
   >();
   try {
     const q = query(collection(db, 'students'), where('ownerId', '==', currentUser.uid));
@@ -550,6 +581,9 @@ export async function syncTeacherAccessToOwnerStudents(
         createdAt: rawCreatedAt instanceof Timestamp ? rawCreatedAt : null,
         existingEmails: Array.isArray(data.assignedTeacherEmails)
           ? data.assignedTeacherEmails.map((e: unknown) => String(e).toLowerCase())
+          : [],
+        existingClerkEmails: Array.isArray(data.assignedClerkEmails)
+          ? data.assignedClerkEmails.map((e: unknown) => String(e).toLowerCase())
           : [],
         rawKeys: Object.keys(data),
       });
@@ -574,14 +608,29 @@ export async function syncTeacherAccessToOwnerStudents(
 
     const existingMeta = existingMetaById.get(docId);
     const targetEmails = computeAssignedTeacherEmailsForStudent(rec, assignments);
+    const targetClerkEmails = clerkAssignments
+      ? computeAssignedClerkEmailsForStudent(rec, clerkAssignments)
+      : existingMeta?.existingClerkEmails || rec.assignedClerkEmails || [];
 
     const currentEmailsSorted = (existingMeta?.existingEmails || []).slice().sort().join(',');
     const nextEmailsSorted = targetEmails.slice().sort().join(',');
-    if (existingMeta && currentEmailsSorted === nextEmailsSorted) {
+    const currentClerkSorted = (existingMeta?.existingClerkEmails || []).slice().sort().join(',');
+    const nextClerkSorted = targetClerkEmails.slice().sort().join(',');
+
+    if (
+      existingMeta &&
+      currentEmailsSorted === nextEmailsSorted &&
+      currentClerkSorted === nextClerkSorted
+    ) {
       continue;
     }
 
-    const basePayload = buildStudentFirestorePayload(rec, currentUser.uid, targetEmails);
+    const basePayload = buildStudentFirestorePayload(
+      rec,
+      currentUser.uid,
+      targetEmails,
+      targetClerkEmails
+    );
     pendingWrites.push({
       docId,
       payload: {
@@ -744,6 +793,208 @@ export async function updateStudentMarksAsTeacher(record: AdmitCardRecord): Prom
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
+}
+
+/**
+ * Maps a Firestore document snapshot into a ClerkAssignment.
+ */
+function mapDocToClerkAssignment(docId: string, data: Record<string, unknown>): ClerkAssignment {
+  const rawClasses = Array.isArray(data.assignedClasses) ? data.assignedClasses : [];
+  const validClasses: ExamType[] = rawClasses
+    .map((c) => String(c))
+    .filter((c): c is ExamType => c === 'MATRIC (10th)' || c === 'INTERMEDIATE (+2)');
+
+  return {
+    id: docId,
+    ownerId: String(data.ownerId || ''),
+    ownerEmail: String(data.ownerEmail || ''),
+    clerkName: String(data.clerkName || ''),
+    clerkEmail: String(data.clerkEmail || '').toLowerCase(),
+    schoolCode: String(data.schoolCode || ''),
+    schoolName: String(data.schoolName || ''),
+    assignedClasses: validClasses,
+    active: Boolean(data.active),
+  };
+}
+
+/**
+ * Admin: Creates or updates a Read-Only Print Clerk assignment for a School Code & Classes.
+ */
+export async function saveClerkAssignmentInFirestore(
+  input: Omit<ClerkAssignment, 'ownerId' | 'ownerEmail'>
+): Promise<ClerkAssignment> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Please sign in with Google first to assign clerks.');
+  }
+
+  const docId = sanitizeDocId(input.id || `ca_${currentUser.uid.slice(0, 8)}_${Date.now()}`);
+  const path = `clerkAssignments/${docId}`;
+  const docRef = doc(db, 'clerkAssignments', docId);
+
+  const cleanClasses = Array.from(
+    new Set(
+      input.assignedClasses.filter(
+        (c): c is ExamType => c === 'MATRIC (10th)' || c === 'INTERMEDIATE (+2)'
+      )
+    )
+  ).slice(0, 2);
+
+  if (cleanClasses.length === 0) {
+    throw new Error('Select at least one class (10th or 12th).');
+  }
+
+  const cleanSchoolCode = normalizeSchoolCode(input.schoolCode) || clampStr(input.schoolCode.trim(), 32);
+
+  const payload = {
+    ownerId: clampStr(currentUser.uid, 128),
+    ownerEmail: clampStr((currentUser.email || 'admin@school.local').toLowerCase(), 160),
+    clerkName: clampStr(input.clerkName || 'Office Clerk', 120),
+    clerkEmail: clampStr(input.clerkEmail.trim().toLowerCase(), 160),
+    schoolCode: clampStr(cleanSchoolCode, 32),
+    schoolName: clampStr(input.schoolName.trim(), 200),
+    assignedClasses: cleanClasses,
+    active: Boolean(input.active),
+  };
+
+  let exists = false;
+  try {
+    const snap = await getDoc(docRef);
+    exists = snap.exists();
+  } catch {
+    exists = false;
+  }
+
+  if (exists) {
+    try {
+      const { ownerId: _omitOwner, ...updateFields } = payload;
+      await updateDoc(docRef, {
+        ...updateFields,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  } else {
+    try {
+      await setDoc(docRef, {
+        ...payload,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+
+  return { id: docId, ...payload };
+}
+
+/**
+ * Admin: Deletes a ClerkAssignment document from Firestore.
+ */
+export async function deleteClerkAssignmentFromFirestore(assignmentId: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return;
+
+  const docId = sanitizeDocId(assignmentId);
+  const path = `clerkAssignments/${docId}`;
+  try {
+    await deleteDoc(doc(db, 'clerkAssignments', docId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Admin: Real-time subscription to all Print Clerk assignments created by the logged-in school admin.
+ */
+export function subscribeToOwnerClerkAssignments(
+  user: User,
+  onData: (assignments: ClerkAssignment[]) => void
+): () => void {
+  const q = query(collection(db, 'clerkAssignments'), where('ownerId', '==', user.uid));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list = snapshot.docs.map((d) =>
+        mapDocToClerkAssignment(d.id, d.data() as Record<string, unknown>)
+      );
+      list.sort(
+        (a, b) => a.schoolCode.localeCompare(b.schoolCode) || a.clerkName.localeCompare(b.clerkName)
+      );
+      onData(list);
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'clerkAssignments');
+    }
+  );
+}
+
+/**
+ * Clerk (Read-Only): Real-time subscription to active Print Clerk assignments matching logged-in email.
+ */
+export function subscribeToMyClerkAssignments(
+  user: User,
+  onData: (assignments: ClerkAssignment[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  const email = (user.email || '').trim().toLowerCase();
+  if (!email) {
+    onData([]);
+    return () => {};
+  }
+
+  const q = query(collection(db, 'clerkAssignments'), where('clerkEmail', '==', email));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const list = snapshot.docs
+        .map((d) => mapDocToClerkAssignment(d.id, d.data() as Record<string, unknown>))
+        .filter((a) => a.active);
+      onData(list);
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      handleFirestoreError(error, OperationType.LIST, 'clerkAssignments');
+    }
+  );
+}
+
+/**
+ * Clerk (Read-Only): Real-time subscription to ONLY the students where this clerk's email is authorized.
+ */
+export function subscribeToClerkAssignedStudents(
+  user: User,
+  onData: (records: AdmitCardRecord[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  const email = (user.email || '').trim().toLowerCase();
+  if (!email) {
+    onData([]);
+    return () => {};
+  }
+
+  const q = query(
+    collection(db, 'students'),
+    where('assignedClerkEmails', 'array-contains', email)
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const loaded = snapshot.docs.map((d) =>
+        mapFirestoreDocToAdmitCardRecord(d.id, d.data() as Record<string, unknown>)
+      );
+      loaded.sort((a, b) => a.serialNo - b.serialNo);
+      onData(loaded);
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      handleFirestoreError(error, OperationType.LIST, 'students');
+    }
+  );
 }
 
 export async function signInWithGooglePopup(): Promise<User> {

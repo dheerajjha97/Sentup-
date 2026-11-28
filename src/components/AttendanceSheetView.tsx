@@ -29,7 +29,7 @@ import {
 interface AttendanceSheetViewProps {
   records: AdmitCardRecord[];
   activeModule: 'INTERMEDIATE' | 'MATRIC';
-  onTriggerAdmitCardUpload: () => void;
+  onTriggerAdmitCardUpload?: () => void;
 }
 
 interface SubjectGroupOption {
@@ -673,14 +673,16 @@ export const AttendanceSheetView: React.FC<AttendanceSheetViewProps> = ({
               : 'Selected stream/subject ke liye koi student nahi mila. Subject ya Stream filter badalkar dekhein.'}
           </p>
           <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
-            <button
-              type="button"
-              onClick={onTriggerAdmitCardUpload}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 whitespace-nowrap"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              <span>Upload Admit Card PDF</span>
-            </button>
+            {onTriggerAdmitCardUpload && (
+              <button
+                type="button"
+                onClick={onTriggerAdmitCardUpload}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 whitespace-nowrap"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                <span>Upload Admit Card PDF</span>
+              </button>
+            )}
             {classRecords.length === 0 && records.length > 0 && (
               <button
                 type="button"

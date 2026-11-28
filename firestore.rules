@@ -93,7 +93,7 @@ service cloud.firestore {
           'compulsorySubject3', 'compulsorySubject4', 'additionalSubject',
           'allSubjectsSummary', 'sourceFileName', 'sourcePageNumber',
           'extractionMethod', 'interSentUp', 'matricSentUp',
-          'assignedTeacherEmails', 'createdAt', 'updatedAt'
+          'assignedTeacherEmails', 'assignedClerkEmails', 'createdAt', 'updatedAt'
         ])
         && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$')
         && data.serialNo is number && data.serialNo >= 0 && data.serialNo <= 100000
@@ -115,6 +115,7 @@ service cloud.firestore {
         && isValidInterSentUp(data.interSentUp)
         && isValidMatricSentUp(data.matricSentUp)
         && (!('assignedTeacherEmails' in data) || isValidStringList(data.assignedTeacherEmails, 0, 30))
+        && (!('assignedClerkEmails' in data) || isValidStringList(data.assignedClerkEmails, 0, 30))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -143,6 +144,29 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidClerkAssignment(data) {
+      return data.keys().hasAll([
+          'ownerId', 'ownerEmail', 'clerkName', 'clerkEmail',
+          'schoolCode', 'schoolName', 'assignedClasses',
+          'active', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'ownerEmail', 'clerkName', 'clerkEmail',
+          'schoolCode', 'schoolName', 'assignedClasses',
+          'active', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 && data.ownerId.matches('^[a-zA-Z0-9_-]+$')
+        && data.ownerEmail is string && data.ownerEmail.size() >= 3 && data.ownerEmail.size() <= 160
+        && data.clerkName is string && data.clerkName.size() >= 1 && data.clerkName.size() <= 120
+        && data.clerkEmail is string && data.clerkEmail.size() >= 3 && data.clerkEmail.size() <= 160
+        && data.schoolCode is string && data.schoolCode.size() >= 1 && data.schoolCode.size() <= 32
+        && data.schoolName is string && data.schoolName.size() <= 200
+        && isValidStringList(data.assignedClasses, 1, 2)
+        && data.active is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     function isStudentAssignedTeacher(res) {
       return hasVerifiedEmail()
         && 'assignedTeacherEmails' in res
@@ -153,6 +177,16 @@ service cloud.firestore {
         );
     }
 
+    function isStudentAssignedClerk(res) {
+      return hasVerifiedEmail()
+        && 'assignedClerkEmails' in res
+        && res.assignedClerkEmails is list
+        && (
+          request.auth.token.email in res.assignedClerkEmails
+          || callerEmail() in res.assignedClerkEmails
+        );
+    }
+
     match /students/{studentId} {
       allow get: if hasVerifiedEmail()
         && isValidId(studentId)
@@ -160,6 +194,7 @@ service cloud.firestore {
           resource == null
           || resource.data.ownerId == request.auth.uid
           || isStudentAssignedTeacher(resource.data)
+          || isStudentAssignedClerk(resource.data)
           || isAdmin()
         );
 
@@ -169,9 +204,12 @@ service cloud.firestore {
           resource.data.ownerId == request.auth.uid
           || request.auth.token.email in resource.data.assignedTeacherEmails
           || callerEmail() in resource.data.assignedTeacherEmails
+          || request.auth.token.email in resource.data.assignedClerkEmails
+          || callerEmail() in resource.data.assignedClerkEmails
           || isSuperAdminEmail()
         );
 
+      // Clerks strictly cannot create, update, or delete student records
       allow create: if hasVerifiedEmail()
         && isValidId(studentId)
         && isValidStudent(request.resource.data)
@@ -179,7 +217,7 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
 
-      // Pillar 4: Tiered Action-Based Update (Admin/Owner vs Assigned Teacher Marks-Only)
+      // Pillar 4: Tiered Action-Based Update (Admin/Owner vs Assigned Teacher Marks-Only; Clerks are strictly Read-Only)
       allow update: if hasVerifiedEmail()
         && isValidId(studentId)
         && isValidStudent(request.resource.data)
@@ -246,6 +284,51 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'ownerEmail', 'teacherName', 'teacherEmail', 'schoolCode',
           'schoolName', 'assignedClasses', 'assignedSubjects', 'active', 'updatedAt'
+        ]);
+
+      allow delete: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /clerkAssignments/{assignmentId} {
+      // Pillar 6: PII Isolation - only creating school admin, the assigned clerk themselves, or super admin
+      allow get: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && (
+          resource == null
+          || resource.data.ownerId == request.auth.uid
+          || resource.data.clerkEmail == request.auth.token.email
+          || resource.data.clerkEmail == callerEmail()
+          || isAdmin()
+        );
+
+      // Pillar 8: Zero get()/exists() in allow list
+      allow list: if hasVerifiedEmail()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || resource.data.clerkEmail == request.auth.token.email
+          || resource.data.clerkEmail == callerEmail()
+          || isSuperAdminEmail()
+        );
+
+      allow create: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && isValidClerkAssignment(request.resource.data)
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if hasVerifiedEmail()
+        && isValidId(assignmentId)
+        && isValidClerkAssignment(request.resource.data)
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && (resource.data.ownerId == request.auth.uid || isAdmin())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'ownerEmail', 'clerkName', 'clerkEmail', 'schoolCode',
+          'schoolName', 'assignedClasses', 'active', 'updatedAt'
         ]);
 
       allow delete: if hasVerifiedEmail()

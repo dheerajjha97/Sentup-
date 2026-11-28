@@ -125,6 +125,7 @@
         "interSentUp": { "$ref": "#/entities/InterSentUpMarks", "type": "object" },
         "matricSentUp": { "$ref": "#/entities/MatricSentUpMarks", "type": "object" },
         "assignedTeacherEmails": { "type": "array", "description": "Bounded list (max 30) of lowercase teacher emails authorized to update marks for this student" },
+        "assignedClerkEmails": { "type": "array", "description": "Bounded list (max 30) of lowercase clerk emails with strictly read-only print access for this student" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -199,16 +200,49 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "ClerkAssignment": {
+      "title": "ClerkAssignment",
+      "description": "Maps a clerk Gmail to a School Code and Classes (10th/12th) for strictly read-only report printing",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerEmail": { "type": "string", "maxLength": 160 },
+        "clerkName": { "type": "string", "maxLength": 120 },
+        "clerkEmail": { "type": "string", "maxLength": 160 },
+        "schoolCode": { "type": "string", "maxLength": 32 },
+        "schoolName": { "type": "string", "maxLength": 200 },
+        "assignedClasses": { "type": "array", "description": "Bounded list (1..2) of ExamType values" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "ownerEmail",
+        "clerkName",
+        "clerkEmail",
+        "schoolCode",
+        "schoolName",
+        "assignedClasses",
+        "active",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
     "/students/{studentId}": {
       "schema": { "$ref": "#/entities/StudentRecord" },
-      "description": "Stores extracted BSEB Admit Card student details and 10th/12th Sent-Up marks scoped to ownerId and authorized assignedTeacherEmails."
+      "description": "Stores extracted BSEB Admit Card student details and 10th/12th Sent-Up marks scoped to ownerId, authorized assignedTeacherEmails, and read-only assignedClerkEmails."
     },
     "/teacherAssignments/{assignmentId}": {
       "schema": { "$ref": "#/entities/TeacherAssignment" },
       "description": "Stores School Code -> Teacher Email -> Multi-Class & Multi-Subject permissions created by school admins."
+    },
+    "/clerkAssignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/ClerkAssignment" },
+      "description": "Stores School Code -> Clerk Email -> Multi-Class strictly read-only print desk permissions created by school admins."
     }
   }
 }

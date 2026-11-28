@@ -9,16 +9,40 @@ export interface PdfPreviewRequest {
   downloadFullPdf: () => void;
 }
 
+export interface CapturedPdfFile {
+  filename: string;
+  title: string;
+  bytes: Uint8Array;
+}
+
 type PdfPreviewListener = (request: PdfPreviewRequest) => void;
+type PdfCaptureHandler = (file: CapturedPdfFile) => void;
 
 const listeners = new Set<PdfPreviewListener>();
 let nextRequestId = 1;
+let activePdfCaptureHandler: PdfCaptureHandler | null = null;
 
 export function subscribeToPdfPreview(listener: PdfPreviewListener): () => void {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
   };
+}
+
+/**
+ * Temporarily captures all PDFs emitted via deliverGeneratedPdf during `fn()`
+ * instead of opening the preview modal or triggering individual downloads.
+ */
+export function runWithPdfCapture(fn: () => void): CapturedPdfFile[] {
+  const captured: CapturedPdfFile[] = [];
+  const prev = activePdfCaptureHandler;
+  activePdfCaptureHandler = (file) => captured.push(file);
+  try {
+    fn();
+  } finally {
+    activePdfCaptureHandler = prev;
+  }
+  return captured;
 }
 
 /**
@@ -31,6 +55,16 @@ export function deliverGeneratedPdf(
   title: string
 ): void {
   const safeFilename = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
+
+  if (activePdfCaptureHandler) {
+    const arrayBuffer = doc.output('arraybuffer');
+    activePdfCaptureHandler({
+      filename: safeFilename,
+      title,
+      bytes: new Uint8Array(arrayBuffer),
+    });
+    return;
+  }
 
   if (listeners.size === 0) {
     doc.save(safeFilename);

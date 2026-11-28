@@ -16,6 +16,10 @@ import {
   CheckCircle2,
   Eye,
   Filter,
+  Lock,
+  Link2,
+  Unlink,
+  AlertTriangle,
 } from 'lucide-react';
 import { AdmitCardRecord, ExamType, FacultyType } from '../types/admitCard';
 import {
@@ -26,6 +30,13 @@ import {
   exportSentUp12thPdf,
   exportSentUp10thPdf,
 } from '../utils/exportReports';
+import {
+  SchoolCodeClassLock,
+  SchoolCodePair,
+  SchoolCodeRule,
+  getEffectiveCodeLock,
+  normalizeSchoolCode,
+} from '../utils/schoolCodeGuard';
 
 interface SchoolUniversalDashboardProps {
   records: AdmitCardRecord[];
@@ -33,17 +44,28 @@ interface SchoolUniversalDashboardProps {
   onSwitchModule?: (mod: 'INTERMEDIATE' | 'MATRIC') => void;
   onNavigateToMarks: () => void;
   onSelectStudentForEdit: (student: AdmitCardRecord) => void;
+  codeRules?: Record<string, SchoolCodeRule>;
+  onUpdateCodeRule?: (code: string, lock: SchoolCodeClassLock) => void;
+  codePairs?: SchoolCodePair[];
+  onSaveCodePairs?: (pairs: SchoolCodePair[]) => void;
 }
 
 export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> = ({
   records,
   onNavigateToMarks,
   onSelectStudentForEdit,
+  codeRules = {},
+  onUpdateCodeRule,
+  codePairs = [],
+  onSaveCodePairs,
 }) => {
   const [selectedSchoolCode, setSelectedSchoolCode] = useState<string>('ALL');
   const [classFilter, setClassFilter] = useState<'ALL' | '12TH' | '10TH'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [facultyFilter, setFacultyFilter] = useState<string>('ALL');
+  const [pairMatricCode, setPairMatricCode] = useState<string>('');
+  const [pairInterCode, setPairInterCode] = useState<string>('');
+  const [pairSchoolName, setPairSchoolName] = useState<string>('');
 
   // Filter records by Combined Class Selection (ALL / 12TH / 10TH)
   const filteredRecordsByClass = useMemo(() => {
@@ -188,10 +210,78 @@ export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> =
     };
   }, [currentSchoolGroup]);
 
+  // Compute available unlinked 10th-only and 12th-only codes for 1-click pairing
+  const unlinkedPairingCandidates = useMemo(() => {
+    const linkedMatric = new Set(codePairs.map((p) => normalizeSchoolCode(p.matricCode)));
+    const linkedInter = new Set(codePairs.map((p) => normalizeSchoolCode(p.interCode)));
+    const matricCodes: Array<{ code: string; name: string }> = [];
+    const interCodes: Array<{ code: string; name: string }> = [];
+
+    schoolGroups.forEach((sch) => {
+      const norm = normalizeSchoolCode(sch.code);
+      const eff = getEffectiveCodeLock(norm, records, codeRules, codePairs);
+      if (eff?.lock === '10TH_ONLY' && !linkedMatric.has(norm)) {
+        matricCodes.push({ code: norm, name: sch.name });
+      } else if (eff?.lock === '12TH_ONLY' && !linkedInter.has(norm)) {
+        interCodes.push({ code: norm, name: sch.name });
+      }
+    });
+
+    return { matricCodes, interCodes };
+  }, [schoolGroups, records, codeRules, codePairs]);
+
+  const effectivePairMatric =
+    pairMatricCode && unlinkedPairingCandidates.matricCodes.some((c) => c.code === pairMatricCode)
+      ? pairMatricCode
+      : unlinkedPairingCandidates.matricCodes[0]?.code || '';
+
+  const effectivePairInter =
+    pairInterCode && unlinkedPairingCandidates.interCodes.some((c) => c.code === pairInterCode)
+      ? pairInterCode
+      : unlinkedPairingCandidates.interCodes[0]?.code || '';
+
+  const handleLinkSchoolPair = () => {
+    if (!onSaveCodePairs || !effectivePairMatric || !effectivePairInter) return;
+    const defaultName =
+      pairSchoolName.trim() ||
+      unlinkedPairingCandidates.interCodes.find((c) => c.code === effectivePairInter)?.name ||
+      unlinkedPairingCandidates.matricCodes.find((c) => c.code === effectivePairMatric)?.name ||
+      `School (${effectivePairMatric} / ${effectivePairInter})`;
+    const nextPair: SchoolCodePair = {
+      id: `pair_${effectivePairMatric}_${effectivePairInter}`,
+      schoolName: defaultName.replace(/^\d+\s*[-–:]\s*/, '').trim(),
+      matricCode: effectivePairMatric,
+      interCode: effectivePairInter,
+    };
+    onSaveCodePairs([...codePairs, nextPair]);
+    if (onUpdateCodeRule) {
+      onUpdateCodeRule(effectivePairMatric, '10TH_ONLY');
+      onUpdateCodeRule(effectivePairInter, '12TH_ONLY');
+    }
+    setPairSchoolName('');
+  };
+
+  const handleRemoveSchoolPair = (pairId: string) => {
+    if (!onSaveCodePairs) return;
+    onSaveCodePairs(codePairs.filter((p) => p.id !== pairId));
+  };
+
+  // Resolve export class automatically if a single locked school is selected
+  const resolvedExportIs10th = useMemo(() => {
+    if (classFilter === '10TH') return true;
+    if (classFilter === '12TH') return false;
+    if (selectedSchoolCode !== 'ALL') {
+      const eff = getEffectiveCodeLock(selectedSchoolCode, records, codeRules, codePairs);
+      if (eff?.lock === '10TH_ONLY') return true;
+      if (eff?.lock === '12TH_ONLY') return false;
+    }
+    return analytics.matricCount > 0 && analytics.interCount === 0;
+  }, [classFilter, selectedSchoolCode, records, codeRules, codePairs, analytics]);
+
   // Quick Export Handlers
   const handleExportExcel = () => {
     exportToExcel(currentSchoolGroup.records, {
-      mode: classFilter === '10TH' ? 'BSEB_10TH_SENTUP' : 'BSEB_12TH_SENTUP',
+      mode: resolvedExportIs10th ? 'BSEB_10TH_SENTUP' : 'BSEB_12TH_SENTUP',
       filenamePrefix: `Combined_School_${currentSchoolGroup.code}`,
       annualYear: '2027',
       sentUpYear: '2026',
@@ -199,7 +289,7 @@ export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> =
   };
 
   const handleExportPdf = () => {
-    if (classFilter === '10TH') {
+    if (resolvedExportIs10th) {
       exportSentUp10thPdf(
         currentSchoolGroup.records,
         `School_${currentSchoolGroup.code}_10th_SentUp`,
@@ -441,22 +531,124 @@ export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> =
         </div>
       </div>
 
-      {/* School Matrix Table (When 2+ schools detected in records) */}
-      {schoolGroups.length > 1 && selectedSchoolCode === 'ALL' && (
+      {/* School Matrix Table (When 1+ schools detected in records) */}
+      {schoolGroups.length >= 1 && selectedSchoolCode === 'ALL' && (
         <div className="rounded-3xl border border-white/80 bg-white/70 p-4 sm:p-5 shadow-lg shadow-indigo-100/30 backdrop-blur-xl space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2">
               <Building2 className="h-4 w-4 text-indigo-600" />
-              <span>School Distribution Summary ({schoolGroups.length} Schools)</span>
+              <span>
+                School Distribution Summary ({schoolGroups.length}{' '}
+                {schoolGroups.length === 1 ? 'Code' : 'Codes'})
+              </span>
             </h2>
-            <span className="text-[11px] text-slate-500">Tap school to view stats</span>
+            <span className="text-[11px] text-slate-500 flex items-center gap-1">
+              <Lock className="h-3 w-3 text-indigo-500" />
+              <span>Code-to-Class Lock active — galat class upload blocked</span>
+            </span>
           </div>
+
+          {/* Linked +2 School Unified Cards (when 10th + 12th codes are paired) */}
+          {codePairs.length > 0 && (
+            <div className="space-y-1.5">
+              {codePairs.map((pair) => {
+                const mGroup = schoolGroups.find(
+                  (g) => normalizeSchoolCode(g.code) === normalizeSchoolCode(pair.matricCode)
+                );
+                const iGroup = schoolGroups.find(
+                  (g) => normalizeSchoolCode(g.code) === normalizeSchoolCode(pair.interCode)
+                );
+                const combinedTotal = (mGroup?.records.length || 0) + (iGroup?.records.length || 0);
+                return (
+                  <div
+                    key={pair.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-indigo-200/80 bg-gradient-to-r from-indigo-50/80 via-white to-emerald-50/80 px-3.5 py-2 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white shrink-0">
+                        <Link2 className="h-3 w-3" />
+                        Linked +2 School
+                      </span>
+                      <span className="font-bold text-slate-900 truncate max-w-xs">
+                        {pair.schoolName}
+                      </span>
+                      <span className="inline-flex items-center rounded-md bg-emerald-100 border border-emerald-200 px-2 py-0.5 font-mono text-[10px] font-bold text-emerald-900">
+                        10th: {pair.matricCode} ({mGroup?.matricCount || 0})
+                      </span>
+                      <span className="inline-flex items-center rounded-md bg-indigo-100 border border-indigo-200 px-2 py-0.5 font-mono text-[10px] font-bold text-indigo-900">
+                        12th: {pair.interCode} ({iGroup?.interCount || 0})
+                      </span>
+                      <span className="font-mono text-[11px] font-bold text-slate-700">
+                        Total: {combinedTotal}
+                      </span>
+                    </div>
+                    {onSaveCodePairs && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveSchoolPair(pair.id)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-colors"
+                      >
+                        <Unlink className="h-3 w-3" />
+                        <span>Unlink</span>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 1-Click Same-School Pairing Bar (when both unlinked 10th & 12th codes exist) */}
+          {onSaveCodePairs &&
+            unlinkedPairingCandidates.matricCodes.length > 0 &&
+            unlinkedPairingCandidates.interCodes.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-3 py-2 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-indigo-950">
+                  <Link2 className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+                  <span className="font-semibold">Same +2 School ke codes link karein:</span>
+                  <select
+                    aria-label="Select 10th Matric Code to Link"
+                    value={effectivePairMatric}
+                    onChange={(e) => setPairMatricCode(e.target.value)}
+                    className="rounded-lg border border-emerald-300 bg-white px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-900"
+                  >
+                    {unlinkedPairingCandidates.matricCodes.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        10th: {c.code}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="font-bold text-slate-400">+</span>
+                  <select
+                    aria-label="Select 12th Inter Code to Link"
+                    value={effectivePairInter}
+                    onChange={(e) => setPairInterCode(e.target.value)}
+                    className="rounded-lg border border-indigo-300 bg-white px-2 py-0.5 font-mono text-[11px] font-bold text-indigo-900"
+                  >
+                    {unlinkedPairingCandidates.interCodes.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        12th: {c.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleLinkSchoolPair}
+                  className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-indigo-700 shadow-2xs transition-colors"
+                >
+                  <Link2 className="h-3 w-3" />
+                  <span>Link Same School</span>
+                </button>
+              </div>
+            )}
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200/80 bg-white/90">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold text-slate-600">
                 <tr>
                   <th className="px-3 py-2.5">School Code &amp; Name</th>
+                  <th className="px-3 py-2.5 text-center">Class Lock</th>
                   <th className="px-3 py-2.5 text-center">Combined</th>
                   <th className="px-3 py-2.5 text-center">12th Inter</th>
                   <th className="px-3 py-2.5 text-center">10th Matric</th>
@@ -472,20 +664,123 @@ export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> =
                     if (s.enteredCount > 0) schDone++;
                   });
 
+                  const normCode = normalizeSchoolCode(sch.code);
+                  const effLock = getEffectiveCodeLock(normCode, records, codeRules, codePairs);
+                  const currentLock: SchoolCodeClassLock = effLock?.lock || 'BOTH';
+                  const hasInterViolation = currentLock === '10TH_ONLY' && sch.interCount > 0;
+                  const hasMatricViolation = currentLock === '12TH_ONLY' && sch.matricCount > 0;
+                  const linkedPair = codePairs.find(
+                    (p) =>
+                      normalizeSchoolCode(p.matricCode) === normCode ||
+                      normalizeSchoolCode(p.interCode) === normCode
+                  );
+
                   return (
                     <tr key={sch.code} className="hover:bg-indigo-50/40 transition-colors">
                       <td className="px-3 py-2.5 font-semibold text-slate-900">
-                        <div className="font-mono text-indigo-800 font-bold">Code {sch.code}</div>
-                        <div className="text-[11px] text-slate-500 truncate max-w-xs">{sch.name}</div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-indigo-800 font-bold">
+                            Code {sch.code}
+                          </span>
+                          {linkedPair && (
+                            <span
+                              title={`Linked with ${
+                                normalizeSchoolCode(linkedPair.matricCode) === normCode
+                                  ? `12th Code ${linkedPair.interCode}`
+                                  : `10th Code ${linkedPair.matricCode}`
+                              }`}
+                              className="inline-flex items-center gap-0.5 rounded bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700"
+                            >
+                              <Link2 className="h-2.5 w-2.5" />
+                              Linked
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate max-w-xs">
+                          {sch.name}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {onUpdateCodeRule ? (
+                          <select
+                            aria-label={`Class lock for school code ${sch.code}`}
+                            value={currentLock}
+                            onChange={(e) =>
+                              onUpdateCodeRule(normCode, e.target.value as SchoolCodeClassLock)
+                            }
+                            className={`rounded-lg border px-2 py-0.5 text-[10px] font-bold cursor-pointer focus:outline-none ${
+                              currentLock === '10TH_ONLY'
+                                ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                                : currentLock === '12TH_ONLY'
+                                ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
+                                : 'border-slate-300 bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <option value="10TH_ONLY">10th Only 🔒</option>
+                            <option value="12TH_ONLY">12th Only 🔒</option>
+                            <option value="BOTH">Both (10th+12th)</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                              currentLock === '10TH_ONLY'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : currentLock === '12TH_ONLY'
+                                ? 'bg-indigo-100 text-indigo-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            <Lock className="h-2.5 w-2.5" />
+                            {currentLock === '10TH_ONLY'
+                              ? '10th Only'
+                              : currentLock === '12TH_ONLY'
+                              ? '12th Only'
+                              : 'Both'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-center font-mono font-bold text-slate-900">
                         {sch.records.length}
                       </td>
-                      <td className="px-3 py-2.5 text-center font-mono text-indigo-900 font-bold">
-                        {sch.interCount}
+                      <td className="px-3 py-2.5 text-center font-mono font-bold">
+                        {currentLock === '10TH_ONLY' && sch.interCount === 0 ? (
+                          <span
+                            className="text-slate-300 font-normal"
+                            title="Code 10th Only ke liye locked hai"
+                          >
+                            —
+                          </span>
+                        ) : hasInterViolation ? (
+                          <span
+                            title="Mismatch: 10th Only code me 12th records mile!"
+                            className="inline-flex items-center gap-1 rounded-md bg-rose-100 border border-rose-300 px-1.5 py-0.5 text-[10px] font-bold text-rose-800"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            {sch.interCount}
+                          </span>
+                        ) : (
+                          <span className="text-indigo-900">{sch.interCount}</span>
+                        )}
                       </td>
-                      <td className="px-3 py-2.5 text-center font-mono text-emerald-900 font-bold">
-                        {sch.matricCount}
+                      <td className="px-3 py-2.5 text-center font-mono font-bold">
+                        {currentLock === '12TH_ONLY' && sch.matricCount === 0 ? (
+                          <span
+                            className="text-slate-300 font-normal"
+                            title="Code 12th Only ke liye locked hai"
+                          >
+                            —
+                          </span>
+                        ) : hasMatricViolation ? (
+                          <span
+                            title="Mismatch: 12th Only code me 10th records mile!"
+                            className="inline-flex items-center gap-1 rounded-md bg-rose-100 border border-rose-300 px-1.5 py-0.5 text-[10px] font-bold text-rose-800"
+                          >
+                            <AlertTriangle className="h-3 w-3" />
+                            {sch.matricCount}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-900">{sch.matricCount}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-center font-mono">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${

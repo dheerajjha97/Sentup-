@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import {
   ShieldCheck,
   BookOpen,
+  Printer,
   GraduationCap,
   ArrowRight,
   AlertCircle,
@@ -11,7 +12,7 @@ import {
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 
-export type PortalRole = 'ADMIN' | 'TEACHER';
+export type PortalRole = 'ADMIN' | 'TEACHER' | 'CLERK';
 
 interface LoginPageProps {
   loadingRole: PortalRole | null;
@@ -84,7 +85,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         initial={{ opacity: 0, y: 20, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
-        className="relative z-10 w-full max-w-[540px]"
+        className="relative z-10 w-full max-w-[740px]"
       >
         <div className="rounded-3xl border border-white/85 bg-white/90 backdrop-blur-xl shadow-2xl shadow-blue-950/15 p-6 sm:p-9">
           {/* Emblem & Title */}
@@ -104,8 +105,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             >
               BSEB School &amp; Marks Portal
             </h1>
-            <p className="mt-2 text-sm text-slate-600 leading-relaxed max-w-md mx-auto">
-              Select your module to continue. Admin and Teacher portals open in separate workspaces.
+            <p className="mt-2 text-sm text-slate-600 leading-relaxed max-w-lg mx-auto">
+              Select your workspace to continue. Admin, Teacher, and Read-Only Clerk Print Desk open in separate role portals.
             </p>
           </motion.div>
 
@@ -132,8 +133,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </motion.div>
           )}
 
-          {/* Centered Two Separate Login Buttons: Admin & Teacher */}
-          <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Centered Three Separate Login Buttons: Admin, Teacher & Clerk */}
+          <div className="mt-7 grid grid-cols-1 sm:grid-cols-3 gap-3.5">
             {/* Admin Login Button */}
             <motion.button
               type="button"
@@ -141,30 +142,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               onClick={() => onLogin('ADMIN')}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.28, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.28, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
               whileHover={isBusy ? undefined : { y: -3 }}
               whileTap={isBusy ? undefined : { scale: 0.98 }}
-              className="group relative flex flex-col items-center justify-between text-center rounded-2xl bg-gradient-to-b from-[#1E40AF] to-[#1D4ED8] px-5 py-6 text-white shadow-lg shadow-blue-700/25 hover:from-[#1E3A8A] hover:to-[#1E40AF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-60 transition-colors cursor-pointer min-h-[172px]"
+              className="group relative flex flex-col items-center justify-between text-center rounded-2xl bg-gradient-to-b from-[#1E40AF] to-[#1D4ED8] px-4 py-5 text-white shadow-lg shadow-blue-700/25 hover:from-[#1E3A8A] hover:to-[#1E40AF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-60 transition-colors cursor-pointer min-h-[172px]"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 text-white ring-1 ring-white/25">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-white ring-1 ring-white/25">
                 {loadingRole === 'ADMIN' ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <ShieldCheck className="h-6 w-6" />
+                  <ShieldCheck className="h-5 w-5" />
                 )}
               </div>
 
-              <div className="mt-3.5">
-                <div className="text-base font-bold tracking-tight whitespace-nowrap">
+              <div className="mt-3">
+                <div className="text-[15px] font-bold tracking-tight whitespace-nowrap">
                   Admin Login
                 </div>
                 <p className="mt-1 text-xs text-blue-100/95 leading-snug">
-                  Admit Cards, Attendance, Marks Panji &amp; Teacher Setup
+                  Admit Cards, Marks Panji &amp; Staff Setup
                 </p>
               </div>
 
-              <div className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-white/95">
-                <span>{loadingRole === 'ADMIN' ? 'Signing in...' : 'Continue with Google'}</span>
+              <div className="mt-3.5 inline-flex items-center gap-1.5 text-xs font-semibold text-white/95">
+                <span>{loadingRole === 'ADMIN' ? 'Signing in...' : 'Continue'}</span>
                 <ArrowRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
               </div>
             </motion.button>
@@ -176,30 +177,65 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               onClick={() => onLogin('TEACHER')}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.28, delay: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.28, delay: 0.16, ease: [0.16, 1, 0.3, 1] }}
               whileHover={isBusy ? undefined : { y: -3 }}
               whileTap={isBusy ? undefined : { scale: 0.98 }}
-              className="group relative flex flex-col items-center justify-between text-center rounded-2xl border border-blue-200 bg-white px-5 py-6 text-slate-900 shadow-md shadow-blue-900/5 hover:border-blue-400 hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-60 transition-colors cursor-pointer min-h-[172px]"
+              className="group relative flex flex-col items-center justify-between text-center rounded-2xl border border-blue-200 bg-white px-4 py-5 text-slate-900 shadow-md shadow-blue-900/5 hover:border-blue-400 hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:opacity-60 transition-colors cursor-pointer min-h-[172px]"
             >
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-[#1D4ED8] ring-1 ring-blue-200">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-[#1D4ED8] ring-1 ring-blue-200">
                 {loadingRole === 'TEACHER' ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <BookOpen className="h-6 w-6" />
+                  <BookOpen className="h-5 w-5" />
                 )}
               </div>
 
-              <div className="mt-3.5">
-                <div className="text-base font-bold tracking-tight text-slate-900 whitespace-nowrap">
+              <div className="mt-3">
+                <div className="text-[15px] font-bold tracking-tight text-slate-900 whitespace-nowrap">
                   Teacher Login
                 </div>
                 <p className="mt-1 text-xs text-slate-600 leading-snug">
-                  Subject-wise Marks Entry for Assigned School &amp; Classes
+                  Subject-wise Marks Entry for Assigned Schools
                 </p>
               </div>
 
-              <div className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1D4ED8]">
-                <span>{loadingRole === 'TEACHER' ? 'Signing in...' : 'Continue with Google'}</span>
+              <div className="mt-3.5 inline-flex items-center gap-1.5 text-xs font-semibold text-[#1D4ED8]">
+                <span>{loadingRole === 'TEACHER' ? 'Signing in...' : 'Continue'}</span>
+                <ArrowRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+              </div>
+            </motion.button>
+
+            {/* Clerk Login Button (Read-Only Print Desk) */}
+            <motion.button
+              type="button"
+              disabled={isBusy}
+              onClick={() => onLogin('CLERK')}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.28, delay: 0.22, ease: [0.16, 1, 0.3, 1] }}
+              whileHover={isBusy ? undefined : { y: -3 }}
+              whileTap={isBusy ? undefined : { scale: 0.98 }}
+              className="group relative flex flex-col items-center justify-between text-center rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-5 text-slate-900 shadow-md shadow-slate-900/5 hover:border-sky-400 hover:bg-sky-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 disabled:opacity-60 transition-colors cursor-pointer min-h-[172px]"
+            >
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-100/80 text-sky-700 ring-1 ring-sky-200">
+                {loadingRole === 'CLERK' ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Printer className="h-5 w-5" />
+                )}
+              </div>
+
+              <div className="mt-3">
+                <div className="text-[15px] font-bold tracking-tight text-slate-900 whitespace-nowrap">
+                  Clerk Login
+                </div>
+                <p className="mt-1 text-xs text-slate-600 leading-snug">
+                  Read-Only Print Desk for Attendance &amp; Reports
+                </p>
+              </div>
+
+              <div className="mt-3.5 inline-flex items-center gap-1.5 text-xs font-semibold text-sky-700">
+                <span>{loadingRole === 'CLERK' ? 'Signing in...' : 'Continue'}</span>
                 <ArrowRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
               </div>
             </motion.button>

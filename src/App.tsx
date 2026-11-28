@@ -30,9 +30,15 @@ import {
   ClipboardCheck,
   Users,
   Loader2,
+  Printer,
+  FolderArchive,
+  AlertTriangle,
+  Lock,
+  ArrowRightLeft,
 } from 'lucide-react';
 import {
   AdmitCardRecord,
+  ClerkAssignment,
   CustomExcelFormatConfig,
   ExamType,
   ExportFormatMode,
@@ -80,6 +86,11 @@ import {
   subscribeToOwnerTeacherAssignments,
   subscribeToMyTeacherAssignments,
   subscribeToTeacherAssignedStudents,
+  saveClerkAssignmentInFirestore,
+  deleteClerkAssignmentFromFirestore,
+  subscribeToOwnerClerkAssignments,
+  subscribeToMyClerkAssignments,
+  subscribeToClerkAssignedStudents,
   User,
 } from './firebase';
 import { StudentDetailModal } from './components/StudentDetailModal';
@@ -91,18 +102,37 @@ import { SchoolUniversalDashboard } from './components/SchoolUniversalDashboard'
 import { AttendanceSheetView } from './components/AttendanceSheetView';
 import { TeacherManagementView } from './components/TeacherManagementView';
 import { TeacherMarksPortal } from './components/TeacherMarksPortal';
+import { ClerkPrintDesk } from './components/ClerkPrintDesk';
+import { IntermediateLetterPadView } from './components/IntermediateLetterPadView';
 import { LoginPage, PortalRole } from './components/LoginPage';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PdfPreviewModal } from './components/PdfPreviewModal';
-import { computeAssignedTeacherEmailsForStudent } from './utils/teacherSubjectMatcher';
+import { downloadCompleteClassPackZip } from './utils/completePackExporter';
+import {
+  computeAssignedClerkEmailsForStudent,
+  computeAssignedTeacherEmailsForStudent,
+} from './utils/teacherSubjectMatcher';
+import {
+  SchoolCodeClassLock,
+  SchoolCodePair,
+  SchoolCodeRule,
+  UploadBatchAnalysis,
+  analyzeUploadBatchMismatch,
+  loadSchoolCodePairs,
+  loadSchoolCodeRules,
+  normalizeSchoolCode,
+  saveSchoolCodePairs,
+  saveSchoolCodeRules,
+  validateCodeForExamType,
+} from './utils/schoolCodeGuard';
 
 export type SchoolModule = 'INTERMEDIATE' | 'MATRIC';
 
 const getSavedPortalRole = (uid: string): PortalRole | null => {
   try {
     const val = window.localStorage.getItem(`bseb_portal_role_${uid}`);
-    if (val === 'ADMIN' || val === 'TEACHER') return val;
+    if (val === 'ADMIN' || val === 'TEACHER' || val === 'CLERK') return val;
   } catch {
     // ignore storage restrictions
   }
@@ -129,17 +159,23 @@ export default function App() {
   const [records, setRecordsState] = useState<AdmitCardRecord[]>([]);
   const [activeModule, setActiveModule] = useState<SchoolModule>('INTERMEDIATE');
   const [activeTab, setActiveTab] = useState<
-    'register' | 'marks' | 'analytics' | 'dashboard' | 'attendance' | 'teachers'
+    'register' | 'marks' | 'analytics' | 'dashboard' | 'attendance' | 'teachers' | 'letterpad'
   >('dashboard');
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [activePortalRole, setActivePortalRole] = useState<PortalRole | null>(null);
   const [loginLoadingRole, setLoginLoadingRole] = useState<PortalRole | null>(null);
   const [ownerAssignments, setOwnerAssignments] = useState<TeacherAssignment[]>([]);
+  const [ownerClerkAssignments, setOwnerClerkAssignments] = useState<ClerkAssignment[]>([]);
   const [myTeacherAssignments, setMyTeacherAssignments] = useState<TeacherAssignment[]>([]);
   const [teacherAssignmentsLoading, setTeacherAssignmentsLoading] = useState<boolean>(false);
   const [teacherAssignedStudents, setTeacherAssignedStudents] = useState<AdmitCardRecord[]>([]);
   const [teacherStudentsLoading, setTeacherStudentsLoading] = useState<boolean>(false);
   const [teacherStudentsError, setTeacherStudentsError] = useState<string>('');
+  const [myClerkAssignments, setMyClerkAssignments] = useState<ClerkAssignment[]>([]);
+  const [clerkAssignmentsLoading, setClerkAssignmentsLoading] = useState<boolean>(false);
+  const [clerkAssignedStudents, setClerkAssignedStudents] = useState<AdmitCardRecord[]>([]);
+  const [clerkStudentsLoading, setClerkStudentsLoading] = useState<boolean>(false);
+  const [clerkStudentsError, setClerkStudentsError] = useState<string>('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AdmitCardRecord | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -156,6 +192,7 @@ export default function App() {
   const [customFormat, setCustomFormat] = useState<CustomExcelFormatConfig | null>(null);
   const [exportMode, setExportMode] = useState<ExportFormatMode>('BSEB_12TH_SENTUP');
   const [formatBannerNotice, setFormatBannerNotice] = useState<string>('');
+  const [zipPackStatus, setZipPackStatus] = useState<string>('');
 
   const [progress, setProgress] = useState<ExtractionProgress>({
     isExtracting: false,
@@ -191,16 +228,82 @@ export default function App() {
   recordsRef.current = records;
   const ownerAssignmentsRef = useRef<TeacherAssignment[]>(ownerAssignments);
   ownerAssignmentsRef.current = ownerAssignments;
+  const ownerClerkAssignmentsRef = useRef<ClerkAssignment[]>(ownerClerkAssignments);
+  ownerClerkAssignmentsRef.current = ownerClerkAssignments;
   const pendingRoleRef = useRef<PortalRole | null>(null);
   const lastAutoSyncKeyRef = useRef<string>('');
 
+  const [schoolCodeRules, setSchoolCodeRules] = useState<Record<string, SchoolCodeRule>>(() =>
+    loadSchoolCodeRules()
+  );
+  const [schoolCodePairs, setSchoolCodePairs] = useState<SchoolCodePair[]>(() =>
+    loadSchoolCodePairs()
+  );
+  const [pendingUploadReview, setPendingUploadReview] = useState<{
+    batchRecords: AdmitCardRecord[];
+    analysis: UploadBatchAnalysis;
+    fileNames: string[];
+  } | null>(null);
+
+  const handleUpdateSchoolCodeRule = (code: string, lock: SchoolCodeClassLock) => {
+    const norm = normalizeSchoolCode(code);
+    if (!norm) return;
+    setSchoolCodeRules((prev) => {
+      const next: Record<string, SchoolCodeRule> = {
+        ...prev,
+        [norm]: {
+          code: norm,
+          lock,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      saveSchoolCodeRules(next);
+      return next;
+    });
+  };
+
+  const handleSaveSchoolCodePairs = (pairs: SchoolCodePair[]) => {
+    setSchoolCodePairs(pairs);
+    saveSchoolCodePairs(pairs);
+  };
+
   const handleSwitchTab = (
-    tab: 'register' | 'marks' | 'analytics' | 'dashboard' | 'attendance' | 'teachers'
+    tab: 'register' | 'marks' | 'analytics' | 'dashboard' | 'attendance' | 'teachers' | 'letterpad'
   ) => {
     setActiveTab(tab);
     setIsDrawerOpen(false);
     if (mainScrollRef.current) {
       mainScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleDownloadAdminCompletePack = async () => {
+    const targetExamType = activeModule === 'INTERMEDIATE' ? 'INTERMEDIATE (+2)' : 'MATRIC (10th)';
+    const scoped = records.filter((r) => {
+      if (r.examType !== targetExamType) return false;
+      if (filters.schoolCode !== 'ALL') {
+        const sc = (r.schoolCode || r.rollCode || '').trim();
+        return sc === filters.schoolCode;
+      }
+      return true;
+    });
+    if (scoped.length === 0 || zipPackStatus) return;
+    try {
+      setZipPackStatus('Bundling ZIP...');
+      await downloadCompleteClassPackZip({
+        classMode: activeModule,
+        records: scoped,
+        schoolCode: filters.schoolCode !== 'ALL' ? filters.schoolCode : undefined,
+        schoolName: scoped[0]?.schoolName,
+        onProgress: (msg) => setZipPackStatus(msg),
+      });
+      setFormatBannerNotice(
+        `Complete ${activeModule === 'INTERMEDIATE' ? '12th Intermediate' : '10th Matric'} ZIP Folder Pack downloaded (${scoped.length} students — PDFs, Excels, Attendance, Letter Pad & Lifafa included).`
+      );
+    } catch (err) {
+      console.error('Admin ZIP pack error:', err);
+    } finally {
+      setZipPackStatus('');
     }
   };
 
@@ -225,11 +328,17 @@ export default function App() {
         setRecordsState([]);
         setSelectedRecord(null);
         setOwnerAssignments([]);
+        setOwnerClerkAssignments([]);
         setMyTeacherAssignments([]);
         setTeacherAssignedStudents([]);
         setTeacherAssignmentsLoading(false);
         setTeacherStudentsLoading(false);
         setTeacherStudentsError('');
+        setMyClerkAssignments([]);
+        setClerkAssignedStudents([]);
+        setClerkAssignmentsLoading(false);
+        setClerkStudentsLoading(false);
+        setClerkStudentsError('');
         setIsDrawerOpen(false);
         lastAutoSyncKeyRef.current = '';
       }
@@ -241,13 +350,14 @@ export default function App() {
     };
   }, []);
 
-  // 2. Role-isolated Firestore subscriptions (ADMIN module never loads Teacher queries; TEACHER module never loads Admin records)
+  // 2. Role-isolated Firestore subscriptions (ADMIN, TEACHER, and CLERK never mix queries)
   useEffect(() => {
     if (!firebaseUser || !activePortalRole) return;
 
     if (activePortalRole === 'ADMIN') {
       let unsubscribeStudents: (() => void) | null = null;
       let unsubscribeOwnerAssignments: (() => void) | null = null;
+      let unsubscribeOwnerClerks: (() => void) | null = null;
 
       setCloudStatus('syncing');
       setMyTeacherAssignments([]);
@@ -255,6 +365,11 @@ export default function App() {
       setTeacherAssignmentsLoading(false);
       setTeacherStudentsLoading(false);
       setTeacherStudentsError('');
+      setMyClerkAssignments([]);
+      setClerkAssignedStudents([]);
+      setClerkAssignmentsLoading(false);
+      setClerkStudentsLoading(false);
+      setClerkStudentsError('');
 
       // Clear any foreign records before subscribing
       const unsavedOfflineRecords = recordsRef.current.filter(
@@ -266,11 +381,13 @@ export default function App() {
       }
 
       if (unsavedOfflineRecords.length > 0) {
-        syncAllStudentsToFirestore(unsavedOfflineRecords, ownerAssignmentsRef.current).catch(
-          (err) => {
-            console.error('Initial Firestore sync error:', err);
-          }
-        );
+        syncAllStudentsToFirestore(
+          unsavedOfflineRecords,
+          ownerAssignmentsRef.current,
+          ownerClerkAssignmentsRef.current
+        ).catch((err) => {
+          console.error('Initial Firestore sync error:', err);
+        });
       }
 
       unsubscribeStudents = subscribeToUserStudents(firebaseUser, (cloudRecords) => {
@@ -322,9 +439,57 @@ export default function App() {
         setOwnerAssignments(list);
       });
 
+      unsubscribeOwnerClerks = subscribeToOwnerClerkAssignments(firebaseUser, (list) => {
+        setOwnerClerkAssignments(list);
+      });
+
       return () => {
         if (unsubscribeStudents) unsubscribeStudents();
         if (unsubscribeOwnerAssignments) unsubscribeOwnerAssignments();
+        if (unsubscribeOwnerClerks) unsubscribeOwnerClerks();
+      };
+    }
+
+    if (activePortalRole === 'CLERK') {
+      // CLERK MODULE (READ-ONLY PRINT DESK): Strictly isolated read-only subscriptions
+      recordsRef.current = [];
+      setRecordsState([]);
+      setOwnerAssignments([]);
+      setOwnerClerkAssignments([]);
+      setMyTeacherAssignments([]);
+      setTeacherAssignedStudents([]);
+      setClerkAssignmentsLoading(true);
+      setClerkStudentsLoading(true);
+      setClerkStudentsError('');
+
+      const unsubscribeMyClerks = subscribeToMyClerkAssignments(
+        firebaseUser,
+        (list) => {
+          setMyClerkAssignments(list);
+          setClerkAssignmentsLoading(false);
+        },
+        (errMsg) => {
+          setClerkAssignmentsLoading(false);
+          setClerkStudentsError(errMsg);
+        }
+      );
+
+      const unsubscribeClerkStudents = subscribeToClerkAssignedStudents(
+        firebaseUser,
+        (list) => {
+          setClerkAssignedStudents(list);
+          setClerkStudentsLoading(false);
+          setClerkStudentsError('');
+        },
+        (errMsg) => {
+          setClerkStudentsLoading(false);
+          setClerkStudentsError(errMsg);
+        }
+      );
+
+      return () => {
+        unsubscribeMyClerks();
+        unsubscribeClerkStudents();
       };
     }
 
@@ -332,6 +497,9 @@ export default function App() {
     recordsRef.current = [];
     setRecordsState([]);
     setOwnerAssignments([]);
+    setOwnerClerkAssignments([]);
+    setMyClerkAssignments([]);
+    setClerkAssignedStudents([]);
     setTeacherAssignmentsLoading(true);
     setTeacherStudentsLoading(true);
     setTeacherStudentsError('');
@@ -367,13 +535,13 @@ export default function App() {
     };
   }, [firebaseUser, activePortalRole]);
 
-  // Admin-only: automatically sync assignedTeacherEmails on owner student documents whenever out of sync
+  // Admin-only: automatically sync assignedTeacherEmails & assignedClerkEmails on owner student documents whenever out of sync
   useEffect(() => {
     if (
       activePortalRole !== 'ADMIN' ||
       !firebaseUser ||
       records.length === 0 ||
-      ownerAssignments.length === 0
+      (ownerAssignments.length === 0 && ownerClerkAssignments.length === 0)
     ) {
       return;
     }
@@ -384,25 +552,34 @@ export default function App() {
         .slice()
         .sort()
         .join(',');
-      return currentEmails !== expectedEmails;
+      const currentClerks = (rec.assignedClerkEmails || []).slice().sort().join(',');
+      const expectedClerks = computeAssignedClerkEmailsForStudent(rec, ownerClerkAssignments)
+        .slice()
+        .sort()
+        .join(',');
+      return currentEmails !== expectedEmails || currentClerks !== expectedClerks;
     }).length;
 
     if (staleCount === 0) return;
 
-    const syncFingerprint = `${firebaseUser.uid}|${records.length}|${ownerAssignments
+    const syncFingerprint = `${firebaseUser.uid}|${records.length}|t:${ownerAssignments
       .map(
         (a) =>
           `${a.id}:${a.active}:${a.schoolCode}:${a.assignedClasses.join(',')}:${a.assignedSubjects.join(',')}`
       )
+      .join(';')}|c:${ownerClerkAssignments
+      .map((c) => `${c.id}:${c.active}:${c.schoolCode}:${c.assignedClasses.join(',')}`)
       .join(';')}|stale:${staleCount}`;
 
     if (lastAutoSyncKeyRef.current === syncFingerprint) return;
     lastAutoSyncKeyRef.current = syncFingerprint;
 
-    syncTeacherAccessToOwnerStudents(records, ownerAssignments).catch((err) => {
-      console.error('Auto-sync teacher permissions warning:', err);
-    });
-  }, [activePortalRole, firebaseUser, records, ownerAssignments]);
+    syncTeacherAccessToOwnerStudents(records, ownerAssignments, ownerClerkAssignments).catch(
+      (err) => {
+        console.error('Auto-sync staff permissions warning:', err);
+      }
+    );
+  }, [activePortalRole, firebaseUser, records, ownerAssignments, ownerClerkAssignments]);
 
   // Wrapper that updates local state and persists changes to Firebase Firestore
   const setRecords = (
@@ -412,7 +589,11 @@ export default function App() {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       if (auth.currentUser && activePortalRole === 'ADMIN') {
         setCloudStatus('syncing');
-        syncAllStudentsToFirestore(next, ownerAssignmentsRef.current)
+        syncAllStudentsToFirestore(
+          next,
+          ownerAssignmentsRef.current,
+          ownerClerkAssignmentsRef.current
+        )
           .then(() => setCloudStatus('synced'))
           .catch(() => setCloudStatus('error'));
       }
@@ -427,19 +608,99 @@ export default function App() {
     const nextAssignments = ownerAssignmentsRef.current.some((a) => a.id === saved.id)
       ? ownerAssignmentsRef.current.map((a) => (a.id === saved.id ? saved : a))
       : [...ownerAssignmentsRef.current, saved];
+    ownerAssignmentsRef.current = nextAssignments;
     setOwnerAssignments(nextAssignments);
-    await syncTeacherAccessToOwnerStudents(recordsRef.current, nextAssignments);
+    await syncTeacherAccessToOwnerStudents(
+      recordsRef.current,
+      nextAssignments,
+      ownerClerkAssignmentsRef.current
+    );
+  };
+
+  const handleSaveMultipleTeacherAssignments = async (
+    inputs: Array<Omit<TeacherAssignment, 'ownerId' | 'ownerEmail'>>
+  ): Promise<number> => {
+    let nextAssignments = [...ownerAssignmentsRef.current];
+    for (const input of inputs) {
+      const saved = await saveTeacherAssignmentInFirestore(input);
+      nextAssignments = nextAssignments.some((a) => a.id === saved.id)
+        ? nextAssignments.map((a) => (a.id === saved.id ? saved : a))
+        : [...nextAssignments, saved];
+    }
+    ownerAssignmentsRef.current = nextAssignments;
+    setOwnerAssignments(nextAssignments);
+    return syncTeacherAccessToOwnerStudents(
+      recordsRef.current,
+      nextAssignments,
+      ownerClerkAssignmentsRef.current
+    );
   };
 
   const handleDeleteTeacherAssignment = async (assignmentId: string) => {
     await deleteTeacherAssignmentFromFirestore(assignmentId);
     const nextAssignments = ownerAssignmentsRef.current.filter((a) => a.id !== assignmentId);
+    ownerAssignmentsRef.current = nextAssignments;
     setOwnerAssignments(nextAssignments);
-    await syncTeacherAccessToOwnerStudents(recordsRef.current, nextAssignments);
+    await syncTeacherAccessToOwnerStudents(
+      recordsRef.current,
+      nextAssignments,
+      ownerClerkAssignmentsRef.current
+    );
+  };
+
+  const handleSaveClerkAssignment = async (
+    input: Omit<ClerkAssignment, 'ownerId' | 'ownerEmail'>
+  ) => {
+    const saved = await saveClerkAssignmentInFirestore(input);
+    const nextClerks = ownerClerkAssignmentsRef.current.some((c) => c.id === saved.id)
+      ? ownerClerkAssignmentsRef.current.map((c) => (c.id === saved.id ? saved : c))
+      : [...ownerClerkAssignmentsRef.current, saved];
+    ownerClerkAssignmentsRef.current = nextClerks;
+    setOwnerClerkAssignments(nextClerks);
+    await syncTeacherAccessToOwnerStudents(
+      recordsRef.current,
+      ownerAssignmentsRef.current,
+      nextClerks
+    );
+  };
+
+  const handleSaveMultipleClerkAssignments = async (
+    inputs: Array<Omit<ClerkAssignment, 'ownerId' | 'ownerEmail'>>
+  ): Promise<number> => {
+    let nextClerks = [...ownerClerkAssignmentsRef.current];
+    for (const input of inputs) {
+      const saved = await saveClerkAssignmentInFirestore(input);
+      nextClerks = nextClerks.some((c) => c.id === saved.id)
+        ? nextClerks.map((c) => (c.id === saved.id ? saved : c))
+        : [...nextClerks, saved];
+    }
+    ownerClerkAssignmentsRef.current = nextClerks;
+    setOwnerClerkAssignments(nextClerks);
+    return syncTeacherAccessToOwnerStudents(
+      recordsRef.current,
+      ownerAssignmentsRef.current,
+      nextClerks
+    );
+  };
+
+  const handleDeleteClerkAssignment = async (assignmentId: string) => {
+    await deleteClerkAssignmentFromFirestore(assignmentId);
+    const nextClerks = ownerClerkAssignmentsRef.current.filter((c) => c.id !== assignmentId);
+    ownerClerkAssignmentsRef.current = nextClerks;
+    setOwnerClerkAssignments(nextClerks);
+    await syncTeacherAccessToOwnerStudents(
+      recordsRef.current,
+      ownerAssignmentsRef.current,
+      nextClerks
+    );
   };
 
   const handleResyncAllTeacherAccess = async (): Promise<number> => {
-    return syncTeacherAccessToOwnerStudents(recordsRef.current, ownerAssignmentsRef.current);
+    return syncTeacherAccessToOwnerStudents(
+      recordsRef.current,
+      ownerAssignmentsRef.current,
+      ownerClerkAssignmentsRef.current
+    );
   };
 
   const handleRoleLogin = async (role: PortalRole) => {
@@ -477,6 +738,48 @@ export default function App() {
     setActivePortalRole(null);
     setIsDrawerOpen(false);
     await signOutFromFirebase();
+  };
+
+  const commitExtractedBatch = (
+    recordsToSave: AdmitCardRecord[],
+    autoSwitchModule = true
+  ) => {
+    if (recordsToSave.length === 0) return;
+
+    setRecordsState((prev) => {
+      const next = [...prev];
+      for (const rec of recordsToSave) {
+        const existingIdx = next.findIndex((r) => r.id === rec.id);
+        if (existingIdx !== -1) {
+          next[existingIdx] = rec;
+        } else {
+          next.push(rec);
+        }
+      }
+      return next;
+    });
+
+    if (auth.currentUser) {
+      for (const rec of recordsToSave) {
+        upsertStudentInFirestore(
+          rec,
+          ownerAssignmentsRef.current,
+          ownerClerkAssignmentsRef.current
+        ).catch(console.error);
+      }
+    }
+
+    if (autoSwitchModule) {
+      const matricCount = recordsToSave.filter((r) => r.examType === 'MATRIC (10th)').length;
+      const interCount = recordsToSave.filter((r) => r.examType === 'INTERMEDIATE (+2)').length;
+      if (matricCount > 0 && interCount === 0) {
+        setActiveModule('MATRIC');
+        setExportMode('BSEB_10TH_SENTUP');
+      } else if (interCount > 0 && matricCount === 0) {
+        setActiveModule('INTERMEDIATE');
+        setExportMode('BSEB_12TH_SENTUP');
+      }
+    }
   };
 
   const handleFilesSelected = async (fileList: FileList | File[]) => {
@@ -538,29 +841,6 @@ export default function App() {
               totalExtractedInBatch++;
               runningSerialNo++;
               batchRecords.push(latestRecord);
-
-              if (totalExtractedInBatch === 1) {
-                if (latestRecord.examType === 'MATRIC (10th)') {
-                  setActiveModule('MATRIC');
-                  setExportMode('BSEB_10TH_SENTUP');
-                } else if (latestRecord.examType === 'INTERMEDIATE (+2)') {
-                  setActiveModule('INTERMEDIATE');
-                  setExportMode('BSEB_12TH_SENTUP');
-                }
-              }
-
-              setRecordsState((prev) => {
-                const existingIdx = prev.findIndex((r) => r.id === latestRecord.id);
-                if (existingIdx !== -1) {
-                  const updated = [...prev];
-                  updated[existingIdx] = latestRecord;
-                  return updated;
-                }
-                return [...prev, latestRecord];
-              });
-              if (auth.currentUser) {
-                upsertStudentInFirestore(latestRecord, ownerAssignmentsRef.current).catch(console.error);
-              }
             }
             setProgress((prev) => ({
               ...prev,
@@ -580,23 +860,36 @@ export default function App() {
       }
     }
 
+    let statusSummary =
+      totalExtractedInBatch > 0 ? `${totalExtractedInBatch} admit cards extracted.` : '';
+
     if (batchRecords.length > 0) {
-      const matricCount = batchRecords.filter((r) => r.examType === 'MATRIC (10th)').length;
-      const interCount = batchRecords.filter((r) => r.examType === 'INTERMEDIATE (+2)').length;
-      if (matricCount > 0 && interCount === 0) {
-        setActiveModule('MATRIC');
-        setExportMode('BSEB_10TH_SENTUP');
-      } else if (interCount > 0 && matricCount === 0) {
-        setActiveModule('INTERMEDIATE');
-        setExportMode('BSEB_12TH_SENTUP');
+      const analysis = analyzeUploadBatchMismatch(
+        batchRecords,
+        activeModule,
+        activeTab,
+        recordsRef.current,
+        schoolCodeRules,
+        schoolCodePairs
+      );
+
+      if (analysis.needsConfirmation) {
+        // Pause saving until user explicitly resolves code/class mismatch
+        setPendingUploadReview({
+          batchRecords,
+          analysis,
+          fileNames: pdfOrImgFiles.map((f) => f.name),
+        });
+        statusSummary = `Upload paused (${batchRecords.length} records) — Class/Code verification required.`;
+      } else {
+        commitExtractedBatch(batchRecords, true);
       }
     }
 
     setProgress((prev) => ({
       ...prev,
       isExtracting: false,
-      statusMessage:
-        totalExtractedInBatch > 0 ? `${totalExtractedInBatch} admit cards extracted.` : '',
+      statusMessage: statusSummary,
       errors: batchErrors,
     }));
 
@@ -711,9 +1004,24 @@ export default function App() {
   };
 
   const handleUpdateRecord = (updated: AdmitCardRecord) => {
+    const codeCheck = validateCodeForExamType(
+      updated.schoolCode || updated.rollCode || '',
+      updated.examType,
+      recordsRef.current.filter((r) => r.id !== updated.id),
+      schoolCodeRules,
+      schoolCodePairs
+    );
+    if (!codeCheck.valid) {
+      setFormatBannerNotice(`Blocked: ${codeCheck.reason}`);
+      return;
+    }
     setRecordsState((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
     if (auth.currentUser) {
-      upsertStudentInFirestore(updated, ownerAssignmentsRef.current).catch(console.error);
+      upsertStudentInFirestore(
+        updated,
+        ownerAssignmentsRef.current,
+        ownerClerkAssignmentsRef.current
+      ).catch(console.error);
     }
   };
 
@@ -745,14 +1053,33 @@ export default function App() {
       return [...otherRecords, ...updatedModuleRecords];
     });
     if (auth.currentUser) {
-      syncAllStudentsToFirestore(updatedModuleRecords, ownerAssignmentsRef.current).catch(console.error);
+      syncAllStudentsToFirestore(
+        updatedModuleRecords,
+        ownerAssignmentsRef.current,
+        ownerClerkAssignmentsRef.current
+      ).catch(console.error);
     }
   };
 
   const handleAddManualRecord = (newRecord: AdmitCardRecord) => {
+    const codeCheck = validateCodeForExamType(
+      newRecord.schoolCode || newRecord.rollCode || '',
+      newRecord.examType,
+      recordsRef.current,
+      schoolCodeRules,
+      schoolCodePairs
+    );
+    if (!codeCheck.valid) {
+      setFormatBannerNotice(`Blocked: ${codeCheck.reason}`);
+      return;
+    }
     setRecordsState((prev) => [...prev, newRecord]);
     if (auth.currentUser) {
-      upsertStudentInFirestore(newRecord, ownerAssignmentsRef.current).catch(console.error);
+      upsertStudentInFirestore(
+        newRecord,
+        ownerAssignmentsRef.current,
+        ownerClerkAssignmentsRef.current
+      ).catch(console.error);
     }
   };
 
@@ -838,6 +1165,8 @@ export default function App() {
     ? 'login-screen'
     : activePortalRole === 'TEACHER'
     ? 'teacher-module'
+    : activePortalRole === 'CLERK'
+    ? 'clerk-module'
     : 'admin-module';
 
   return (
@@ -889,6 +1218,27 @@ export default function App() {
                 isLoadingAssignments={teacherAssignmentsLoading}
                 isLoadingStudents={teacherStudentsLoading}
                 studentsError={teacherStudentsError}
+                onSignOut={handleFirebaseSignOut}
+              />
+            </main>
+          </motion.div>
+        ) : screenKey === 'clerk-module' && firebaseUser ? (
+          <motion.div
+            key="clerk-module"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+            className="min-h-screen bg-gradient-to-b from-[#F0F9FF] via-[#F8FAFC] to-[#FFFFFF] text-[#191C20] print:bg-white"
+          >
+            <main className="mx-auto w-full max-w-[1360px] px-4 sm:px-6 py-4 sm:py-6 print:max-w-none print:p-0">
+              <ClerkPrintDesk
+                user={firebaseUser}
+                assignments={myClerkAssignments}
+                assignedStudents={clerkAssignedStudents}
+                isLoadingAssignments={clerkAssignmentsLoading}
+                isLoadingStudents={clerkStudentsLoading}
+                studentsError={clerkStudentsError}
                 onSignOut={handleFirebaseSignOut}
               />
             </main>
@@ -1145,6 +1495,21 @@ export default function App() {
 
               <button
                 type="button"
+                onClick={() => handleSwitchTab('letterpad')}
+                className={`flex w-full items-center justify-between rounded-full px-4 py-2.5 text-xs font-semibold transition-colors ${
+                  activeTab === 'letterpad'
+                    ? 'bg-indigo-100 text-indigo-950'
+                    : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-3">
+                  <Printer className="h-4 w-4 text-indigo-600" />
+                  <span>Letter Pad &amp; Lifafa (12th/10th)</span>
+                </span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => handleSwitchTab('teachers')}
                 className={`flex w-full items-center justify-between rounded-full px-4 py-2.5 text-xs font-semibold transition-colors ${
                   activeTab === 'teachers'
@@ -1154,11 +1519,11 @@ export default function App() {
               >
                 <span className="flex items-center gap-3">
                   <Users className="h-4 w-4 text-indigo-600" />
-                  <span>Assign Teachers</span>
+                  <span>Teachers &amp; Clerks</span>
                 </span>
-                {ownerAssignments.length > 0 && (
+                {(ownerAssignments.length > 0 || ownerClerkAssignments.length > 0) && (
                   <span className="rounded-full bg-white/80 px-2 py-0.5 font-mono text-[10px] text-indigo-900 font-bold">
-                    {ownerAssignments.length}
+                    {ownerAssignments.length + ownerClerkAssignments.length}
                   </span>
                 )}
               </button>
@@ -1784,6 +2149,31 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleSwitchTab('letterpad')}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold text-indigo-900 hover:bg-indigo-50 whitespace-nowrap"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>Letter / Lifafa</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadAdminCompletePack}
+                  disabled={currentModuleRecords.length === 0 || Boolean(zipPackStatus)}
+                  title="Download all PDFs, Excels, Attendance Sheet, Letter Pad & Lifafa Slips in 1 ZIP folder"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-700 px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold text-white hover:bg-emerald-800 shadow-2xs disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                >
+                  {zipPackStatus ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FolderArchive className="h-3.5 w-3.5" />
+                  )}
+                  <span>
+                    {zipPackStatus ||
+                      `All ${activeModule === 'INTERMEDIATE' ? '12th' : '10th'} ZIP`}
+                  </span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setIsManualModalOpen(true)}
                   className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap"
                 >
@@ -2080,6 +2470,10 @@ export default function App() {
             onSwitchModule={handleSwitchModule}
             onNavigateToMarks={() => handleSwitchTab('marks')}
             onSelectStudentForEdit={setSelectedRecord}
+            codeRules={schoolCodeRules}
+            onUpdateCodeRule={handleUpdateSchoolCodeRule}
+            codePairs={schoolCodePairs}
+            onSaveCodePairs={handleSaveSchoolCodePairs}
           />
         ) : activeTab === 'attendance' ? (
           <AttendanceSheetView
@@ -2087,14 +2481,21 @@ export default function App() {
             activeModule={activeModule}
             onTriggerAdmitCardUpload={() => fileInputRef.current?.click()}
           />
+        ) : activeTab === 'letterpad' ? (
+          <IntermediateLetterPadView records={records} initialClassMode={activeModule} />
         ) : activeTab === 'teachers' ? (
           <TeacherManagementView
             records={records}
             assignments={ownerAssignments}
+            clerkAssignments={ownerClerkAssignments}
             firebaseUser={firebaseUser}
             onSignIn={handleFirebaseSignIn}
             onSaveAssignment={handleSaveTeacherAssignment}
+            onSaveMultipleAssignments={handleSaveMultipleTeacherAssignments}
             onDeleteAssignment={handleDeleteTeacherAssignment}
+            onSaveClerkAssignment={handleSaveClerkAssignment}
+            onSaveMultipleClerkAssignments={handleSaveMultipleClerkAssignments}
+            onDeleteClerkAssignment={handleDeleteClerkAssignment}
             onResyncAllAccess={handleResyncAllTeacherAccess}
           />
         ) : activeTab === 'analytics' ? (
@@ -2102,6 +2503,9 @@ export default function App() {
         ) : activeTab === 'marks' ? (
           <SubjectMarksAndFormatView
             records={filteredRecords}
+            allRecords={records}
+            codeRules={schoolCodeRules}
+            codePairs={schoolCodePairs}
             customFormat={customFormat}
             exportMode={exportMode}
             activeModule={activeModule}
@@ -2550,7 +2954,7 @@ export default function App() {
               Icon: BookOpen,
             },
             { id: 'attendance' as const, label: 'Attendance', Icon: ClipboardCheck },
-            { id: 'teachers' as const, label: 'Teachers', Icon: Users },
+            { id: 'teachers' as const, label: 'Staff', Icon: Users },
           ] as const
         ).map(({ id, label, Icon }) => {
           const isActive = activeTab === id;
@@ -2605,6 +3009,230 @@ export default function App() {
         />
       )}
 
+      {/* Upload Class / School Code Mismatch Guard Modal */}
+      {pendingUploadReview && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="upload-guard-title"
+        >
+          <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3">
+              <div
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
+                  pendingUploadReview.analysis.hasCodeViolation
+                    ? 'bg-rose-100 text-rose-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}
+              >
+                {pendingUploadReview.analysis.hasCodeViolation ? (
+                  <Lock className="h-5 w-5" />
+                ) : (
+                  <AlertTriangle className="h-5 w-5" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3
+                  id="upload-guard-title"
+                  className="text-base font-bold text-slate-900"
+                >
+                  {pendingUploadReview.analysis.hasCodeViolation
+                    ? 'School Code Lock Mismatch Detected!'
+                    : 'Wrong Class Tab Me PDF Upload Hua Hai'}
+                </h3>
+                <p className="mt-1 text-xs text-slate-600">
+                  Data abhi save nahi kiya gaya hai. Pehle confirm karein taaki 10th aur 12th ka
+                  school code mix na ho.
+                </p>
+              </div>
+            </div>
+
+            {/* Mismatch Details Box */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 text-xs space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="font-bold text-slate-500">File:</span>
+                <span className="font-semibold text-slate-900 truncate max-w-[320px]">
+                  {pendingUploadReview.fileNames.join(', ')}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 font-semibold text-slate-700">
+                  Active Tab:{' '}
+                  <b>
+                    {pendingUploadReview.analysis.activeModule === 'MATRIC'
+                      ? '10th Matric'
+                      : '12th Inter'}
+                  </b>
+                </span>
+                <span className="rounded-md bg-white border border-slate-200 px-2 py-0.5 font-semibold text-slate-700">
+                  PDF Me Mila:{' '}
+                  <b>
+                    {pendingUploadReview.analysis.interCount > 0 &&
+                    pendingUploadReview.analysis.matricCount > 0
+                      ? `12th (${pendingUploadReview.analysis.interCount}) + 10th (${pendingUploadReview.analysis.matricCount})`
+                      : pendingUploadReview.analysis.interCount > 0
+                      ? `12th Inter (${pendingUploadReview.analysis.interCount})`
+                      : `10th Matric (${pendingUploadReview.analysis.matricCount})`}
+                  </b>
+                </span>
+                {pendingUploadReview.analysis.detectedCodes.length > 0 && (
+                  <span className="rounded-md bg-indigo-50 border border-indigo-200 px-2 py-0.5 font-mono font-bold text-indigo-900">
+                    Code: {pendingUploadReview.analysis.detectedCodes.join(', ')}
+                  </span>
+                )}
+              </div>
+
+              {pendingUploadReview.analysis.hasCodeViolation && (
+                <div className="mt-2 space-y-1.5 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-rose-900">
+                  {pendingUploadReview.analysis.codeViolations.map((v, idx) => (
+                    <div key={`${v.code}-${idx}`} className="flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-rose-600 shrink-0 mt-0.5" />
+                      <span>
+                        Code <b className="font-mono">{v.code}</b> sirf{' '}
+                        <b>{v.lockedTo === '10TH_ONLY' ? '10th Matric' : '12th Inter'}</b> ke liye
+                        locked hai, lekin is PDF me{' '}
+                        <b>
+                          {v.count}{' '}
+                          {v.uploadedClass === 'MATRIC (10th)' ? '10th Matric' : '12th Inter'}
+                        </b>{' '}
+                        students isi code ke saath mile hain.
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!pendingUploadReview.analysis.hasCodeViolation &&
+                pendingUploadReview.analysis.hasTabMismatch && (
+                  <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-amber-950">
+                    Aap abhi{' '}
+                    <b>
+                      {pendingUploadReview.analysis.activeModule === 'MATRIC'
+                        ? '10th Matric'
+                        : '12th Intermediate'}
+                    </b>{' '}
+                    module me hain, lekin ye PDF{' '}
+                    <b>
+                      {pendingUploadReview.analysis.interCount > 0
+                        ? '12th Intermediate'
+                        : '10th Matric'}
+                    </b>{' '}
+                    ka hai. Kya ise automatically sahi class me save karein?
+                  </div>
+                )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingUploadReview(null);
+                  setProgress((prev) => ({
+                    ...prev,
+                    statusMessage: 'Upload cancelled — koi data save nahi hua.',
+                  }));
+                }}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>Cancel Upload</span>
+              </button>
+
+              {/* Case A: Tab Mismatch Only (Codes are valid for their class!) */}
+              {!pendingUploadReview.analysis.hasCodeViolation && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const batch = pendingUploadReview.batchRecords;
+                    commitExtractedBatch(batch, true);
+                    setFormatBannerNotice(
+                      `${batch.length} students sahi class (${
+                        pendingUploadReview.analysis.interCount > 0 ? '12th Inter' : '10th Matric'
+                      }) me safely save ho gaye.`
+                    );
+                    setPendingUploadReview(null);
+                  }}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 shadow-sm"
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  <span>
+                    Sahi Class (
+                    {pendingUploadReview.analysis.interCount > 0 ? '12th Inter' : '10th Matric'}) Me
+                    Save Karein
+                  </span>
+                </button>
+              )}
+
+              {/* Case B: Code Lock Violation — offer auto-fix if suggested valid code exists */}
+              {pendingUploadReview.analysis.hasCodeViolation &&
+                pendingUploadReview.analysis.codeViolations.every((v) => Boolean(v.suggestedCode)) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const violationLookup = new Map<string, string>();
+                      pendingUploadReview.analysis.codeViolations.forEach((v) => {
+                        if (v.suggestedCode) {
+                          violationLookup.set(`${v.code}__${v.uploadedClass}`, v.suggestedCode);
+                        }
+                      });
+                      const fixedBatch = pendingUploadReview.batchRecords.map((rec) => {
+                        const norm = normalizeSchoolCode(rec.schoolCode || rec.rollCode);
+                        const replacementCode = violationLookup.get(`${norm}__${rec.examType}`);
+                        if (!replacementCode) return rec;
+                        return {
+                          ...rec,
+                          schoolCode: replacementCode,
+                          rollCode: replacementCode,
+                        };
+                      });
+                      commitExtractedBatch(fixedBatch, true);
+                      setFormatBannerNotice(
+                        `${fixedBatch.length} students ko sahi locked School Code me fix karke save kar diya gaya.`
+                      );
+                      setPendingUploadReview(null);
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-sm"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    <span>
+                      Sahi Code (
+                      {pendingUploadReview.analysis.codeViolations
+                        .map((v) => v.suggestedCode)
+                        .filter(Boolean)
+                        .join(', ')}
+                      ) Me Fix &amp; Save
+                    </span>
+                  </button>
+                )}
+
+              {/* Partial valid save if mixed batch */}
+              {pendingUploadReview.analysis.hasCodeViolation &&
+                pendingUploadReview.analysis.validRecords.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const validOnly = pendingUploadReview.analysis.validRecords;
+                      commitExtractedBatch(validOnly, true);
+                      setFormatBannerNotice(
+                        `Sirf ${validOnly.length} valid records save kiye gaye; locked-code mismatched records skip kar diye gaye.`
+                      );
+                      setPendingUploadReview(null);
+                    }}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 shadow-sm"
+                  >
+                    <span>
+                      Sirf Valid ({pendingUploadReview.analysis.validRecords.length}) Save Karein
+                    </span>
+                  </button>
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <SettingsModal
         records={records}
         activeModule={activeModule}
@@ -2614,7 +3242,11 @@ export default function App() {
         onUpdateRecords={(updated) => {
           setRecordsState(updated);
           if (auth.currentUser && activePortalRole === 'ADMIN') {
-            syncAllStudentsToFirestore(updated, ownerAssignmentsRef.current).catch(console.error);
+            syncAllStudentsToFirestore(
+              updated,
+              ownerAssignmentsRef.current,
+              ownerClerkAssignmentsRef.current
+            ).catch(console.error);
           }
         }}
       />

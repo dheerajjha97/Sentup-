@@ -37,6 +37,10 @@
   scrollbar-width: none;  /* Firefox */
 }
 
+.font-hindi {
+  font-family: 'Noto Sans Devanagari', 'Mangal', 'Kohinoor Devanagari', 'Plus Jakarta Sans', sans-serif;
+}
+
 @media print {
   @page {
     size: A4 portrait;
@@ -72,6 +76,17 @@
   .attendance-sheet-page:last-child {
     break-after: auto;
     page-break-after: auto;
+  }
+
+  .letter-pad-print-page {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: auto !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
   }
 }
 

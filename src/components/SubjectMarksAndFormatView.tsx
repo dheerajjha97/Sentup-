@@ -18,6 +18,8 @@ import {
   Edit3,
   GraduationCap,
   School,
+  Lock,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   AdmitCardRecord,
@@ -49,9 +51,17 @@ import {
   exportVisuallyImpairedAbsent10thExcel,
   exportToExcel,
 } from '../utils/exportReports';
+import {
+  SchoolCodePair,
+  SchoolCodeRule,
+  validateCodeForExamType,
+} from '../utils/schoolCodeGuard';
 
 interface SubjectMarksAndFormatViewProps {
   records: AdmitCardRecord[];
+  allRecords?: AdmitCardRecord[];
+  codeRules?: Record<string, SchoolCodeRule>;
+  codePairs?: SchoolCodePair[];
   customFormat: CustomExcelFormatConfig | null;
   exportMode: ExportFormatMode;
   initialSheetTab?: '12TH_SENTUP' | '10TH_SENTUP' | 'CUSTOM_EXCEL';
@@ -91,6 +101,9 @@ const INTER_SUBJECT_SUGGESTIONS = [
 
 export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps> = ({
   records,
+  allRecords,
+  codeRules = {},
+  codePairs = [],
   customFormat,
   exportMode,
   initialSheetTab,
@@ -239,8 +252,27 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
     }
   };
 
+  const activeExamTypeForLock =
+    sheetTab === '10TH_SENTUP' ? ('MATRIC (10th)' as const) : ('INTERMEDIATE (+2)' as const);
+
+  const schoolCodeValidation = useMemo(
+    () =>
+      validateCodeForExamType(
+        defaultSchoolCode,
+        activeExamTypeForLock,
+        allRecords && allRecords.length > 0 ? allRecords : records,
+        codeRules,
+        codePairs
+      ),
+    [defaultSchoolCode, activeExamTypeForLock, allRecords, records, codeRules, codePairs]
+  );
+
   // Add 1 or N blank student rows and focus the newly created row
   const handleAddBlankRows = (count: number) => {
+    if (!schoolCodeValidation.valid) {
+      setUploadNotice(`Blocked: ${schoolCodeValidation.reason}`);
+      return;
+    }
     const isMatric = sheetTab === '10TH_SENTUP';
     const examType = isMatric ? 'MATRIC (10th)' : 'INTERMEDIATE (+2)';
     const nextRows: AdmitCardRecord[] = [];
@@ -295,7 +327,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
         submessage: `Opening Student #${safeActiveIdx + 2}: ${nextName}`,
       });
     } else {
-      // Last student reached - add a new row
+      // Last student reached - add a new row (respecting school code class lock)
+      if (!schoolCodeValidation.valid) {
+        setUploadNotice(`Blocked: ${schoolCodeValidation.reason}`);
+        return;
+      }
       const isMatric = sheetTab === '10TH_SENTUP';
       const examType = isMatric ? 'MATRIC (10th)' : 'INTERMEDIATE (+2)';
       const nextRow = createBlankStudentRecord(
@@ -331,6 +367,10 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
 
   const handleApplySchoolToAll = () => {
     if (records.length === 0) return;
+    if (!schoolCodeValidation.valid) {
+      setUploadNotice(`Blocked: ${schoolCodeValidation.reason}`);
+      return;
+    }
     const updated = records.map((r) => ({
       ...r,
       schoolCode: defaultSchoolCode,
@@ -574,29 +614,34 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
         className="sr-only"
       />
 
-      {/* Top Studio Control Bar: Flutter Material 3 SegmentedButton + FilledButton Toolbar */}
-      <div className="rounded-2xl border border-indigo-100 bg-white p-3.5 sm:p-4 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Top Studio Control Bar: Compact Header + Paired Export Strip */}
+      <div className="rounded-2xl border border-indigo-100 bg-white p-3 sm:p-3.5 shadow-xs space-y-2.5">
+        {/* Row 1: Module Title + Data Entry Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Dedicated Module Header & Optional Custom Format Switcher */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
             {activeModule === 'INTERMEDIATE' ? (
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 shrink-0">
                   <GraduationCap className="h-4 w-4" />
                 </div>
-                <h2 className="text-sm font-bold text-indigo-950">12th Intermediate Sent-Up Panji</h2>
+                <h2 className="text-sm font-bold text-indigo-950 whitespace-nowrap">
+                  12th Intermediate Sent-Up Panji
+                </h2>
               </div>
             ) : (
               <div className="flex items-center gap-2">
                 <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 shrink-0">
                   <School className="h-4 w-4" />
                 </div>
-                <h2 className="text-sm font-bold text-emerald-950">10th Matric Sent-Up Panji</h2>
+                <h2 className="text-sm font-bold text-emerald-950 whitespace-nowrap">
+                  10th Matric Sent-Up Panji
+                </h2>
               </div>
             )}
 
             {customFormat && (
-              <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-[#F3F5FC] p-1">
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-[#F3F5FC] p-0.5">
                 <button
                   type="button"
                   onClick={() =>
@@ -604,7 +649,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                       activeModule === 'INTERMEDIATE' ? '12TH_SENTUP' : '10TH_SENTUP'
                     )
                   }
-                  className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+                  className={`inline-flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all whitespace-nowrap ${
                     sheetTab !== 'CUSTOM_EXCEL'
                       ? activeModule === 'INTERMEDIATE'
                         ? 'bg-indigo-600 text-white shadow-xs'
@@ -618,7 +663,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <button
                   type="button"
                   onClick={() => handleSelectSheetTab('CUSTOM_EXCEL')}
-                  className={`inline-flex items-center justify-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-all ${
+                  className={`inline-flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all whitespace-nowrap ${
                     sheetTab === 'CUSTOM_EXCEL'
                       ? 'bg-indigo-600 text-white shadow-xs'
                       : 'text-slate-700 hover:bg-slate-100'
@@ -631,13 +676,13 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
             )}
           </div>
 
-          {/* Primary Action & Download Toolbar (Flutter FilledButton & FilledButton.tonal) */}
-          <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar py-0.5 w-full sm:w-auto">
+          {/* Compact Entry / Upload Buttons */}
+          <div className="flex flex-wrap items-center gap-1.5">
             {onTriggerAdmitCardUpload && (
               <button
                 type="button"
                 onClick={onTriggerAdmitCardUpload}
-                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50/70 px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-100 whitespace-nowrap shrink-0"
+                className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1 text-[11px] font-semibold text-indigo-900 hover:bg-indigo-100 whitespace-nowrap shrink-0 transition-colors"
               >
                 <Upload className="h-3.5 w-3.5" />
                 <span>Upload PDF</span>
@@ -646,8 +691,14 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
 
             <button
               type="button"
+              disabled={!schoolCodeValidation.valid}
+              title={
+                !schoolCodeValidation.valid
+                  ? schoolCodeValidation.reason
+                  : 'Add 1 blank student row'
+              }
               onClick={() => handleAddBlankRows(1)}
-              className="inline-flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 shadow-xs whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700 shadow-2xs whitespace-nowrap shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>+1 Student</span>
@@ -655,15 +706,34 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
 
             <button
               type="button"
+              disabled={!schoolCodeValidation.valid}
+              title={
+                !schoolCodeValidation.valid
+                  ? schoolCodeValidation.reason
+                  : 'Add 5 blank student rows'
+              }
               onClick={() => handleAddBlankRows(5)}
-              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-800 hover:bg-indigo-50 whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-50 whitespace-nowrap shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="h-3.5 w-3.5" />
               <span>+5 Rows</span>
             </button>
+          </div>
+        </div>
 
-            {sheetTab === '12TH_SENTUP' ? (
-              <>
+        {/* Row 2: Compact Paired Export Toolbar (Wraps cleanly on desktop, horizontally scrollable on mobile) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap [scrollbar-width:thin] rounded-xl border border-slate-200/80 bg-slate-50/80 px-2 py-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 pr-0.5 whitespace-nowrap shrink-0">
+            Download:
+          </span>
+
+          {sheetTab === '12TH_SENTUP' ? (
+            <>
+              {/* 12th Sent-Up Panji Pair */}
+              <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white px-1.5 py-0.5 shadow-2xs shrink-0">
+                <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
+                  12th Panji
+                </span>
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -677,12 +747,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     })
                   }
                   title="Download 30-Column 12th Sent-Up Excel Panji"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>12th Excel</span>
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>Excel</span>
                 </button>
-
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -694,12 +763,18 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     )
                   }
                   title="Download 30-Column 12th Sent-Up PDF Panji (90° Rotated)"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-[#1E1B4B] px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-950 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-[#1E1B4B] px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-950 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>12th PDF</span>
+                  <FileText className="h-3 w-3" />
+                  <span>PDF</span>
                 </button>
+              </div>
 
+              {/* 12th Absent Pair */}
+              <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white px-1.5 py-0.5 shadow-2xs shrink-0">
+                <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
+                  Absent
+                </span>
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -711,12 +786,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     )
                   }
                   title="Download Absent / Non Sent-Up Students PDF Report (Grouped by Faculty: Science, Arts, Commerce)"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-rose-700 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-rose-800 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Absent PDF</span>
+                  <FileText className="h-3 w-3" />
+                  <span>PDF</span>
                 </button>
-
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -728,12 +802,18 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     })
                   }
                   title="Download Absent / Non Sent-Up Students Excel Report"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-800 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-teal-700 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-teal-800 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>Absent Excel</span>
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>Excel</span>
                 </button>
+              </div>
 
+              {/* 12th Vocational Pair */}
+              <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white px-1.5 py-0.5 shadow-2xs shrink-0">
+                <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
+                  Vocational
+                </span>
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -745,12 +825,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     )
                   }
                   title="Download 24-Column Vocational Stream Sent-Up PDF Panji"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-purple-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-900 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-purple-800 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-purple-900 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Vocational PDF</span>
+                  <FileText className="h-3 w-3" />
+                  <span>PDF</span>
                 </button>
-
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -762,14 +841,20 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     })
                   }
                   title="Download 24-Column Vocational Stream Sent-Up Excel Panji"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-800 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-indigo-700 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-800 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>Vocational Excel</span>
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>Excel</span>
                 </button>
-              </>
-            ) : sheetTab === '10TH_SENTUP' ? (
-              <>
+              </div>
+            </>
+          ) : sheetTab === '10TH_SENTUP' ? (
+            <>
+              {/* 10th Sent-Up Panji Pair */}
+              <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white px-1.5 py-0.5 shadow-2xs shrink-0">
+                <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
+                  10th Panji
+                </span>
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -783,12 +868,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     })
                   }
                   title="Download 23-Column 10th Sent-Up Excel Panji"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>10th Excel</span>
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>Excel</span>
                 </button>
-
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -800,12 +884,18 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     )
                   }
                   title="Download 23-Column 10th Sent-Up PDF Panji (90° Rotated)"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-[#1E1B4B] px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-950 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-[#1E1B4B] px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-950 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>10th PDF</span>
+                  <FileText className="h-3 w-3" />
+                  <span>PDF</span>
                 </button>
+              </div>
 
+              {/* 10th Absent Pair */}
+              <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white px-1.5 py-0.5 shadow-2xs shrink-0">
+                <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
+                  Absent
+                </span>
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -817,12 +907,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     )
                   }
                   title="Download 24-Column Matric Absent / Non Sent-Up Students PDF (Form iii)"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-rose-700 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-rose-800 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Absent PDF</span>
+                  <FileText className="h-3 w-3" />
+                  <span>PDF</span>
                 </button>
-
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -834,12 +923,18 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     })
                   }
                   title="Download 24-Column Matric Absent / Non Sent-Up Students Excel"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-teal-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-800 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-teal-700 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-teal-800 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>Absent Excel</span>
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>Excel</span>
                 </button>
+              </div>
 
+              {/* 10th Blind Sent-Up Pair */}
+              <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white px-1.5 py-0.5 shadow-2xs shrink-0">
+                <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
+                  Blind Sent-Up
+                </span>
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -851,12 +946,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     )
                   }
                   title="Download 23-Column Visually Impaired Sent-Up PDF (Form ii)"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-purple-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-900 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-purple-800 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-purple-900 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Blind Sent-Up PDF</span>
+                  <FileText className="h-3 w-3" />
+                  <span>PDF</span>
                 </button>
-
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -868,12 +962,18 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     })
                   }
                   title="Download 23-Column Visually Impaired Sent-Up Excel"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-800 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-indigo-700 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-800 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>Blind Sent-Up Excel</span>
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>Excel</span>
                 </button>
+              </div>
 
+              {/* 10th Blind Absent Pair */}
+              <div className="inline-flex items-center gap-1 rounded-lg border border-slate-200/90 bg-white px-1.5 py-0.5 shadow-2xs shrink-0">
+                <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
+                  Blind Absent
+                </span>
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -885,12 +985,11 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     )
                   }
                   title="Download 24-Column Visually Impaired Absent / Non Sent-Up PDF (Form iii)"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-800 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-amber-900 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileText className="h-3.5 w-3.5" />
-                  <span>Blind Absent PDF</span>
+                  <FileText className="h-3 w-3" />
+                  <span>PDF</span>
                 </button>
-
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -902,32 +1001,32 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                     })
                   }
                   title="Download 24-Column Visually Impaired Absent / Non Sent-Up Excel"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-cyan-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-cyan-900 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1 rounded-md bg-cyan-800 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-cyan-900 disabled:opacity-40 whitespace-nowrap transition-colors"
                 >
-                  <FileSpreadsheet className="h-3.5 w-3.5" />
-                  <span>Blind Absent Excel</span>
+                  <FileSpreadsheet className="h-3 w-3" />
+                  <span>Excel</span>
                 </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                disabled={records.length === 0}
-                onClick={() =>
-                  exportToExcel(records, {
-                    mode: exportMode,
-                    customFormat,
-                    filenamePrefix: `BSEB_Custom_Report_${sentUpYear}`,
-                    annualYear,
-                    sentUpYear,
-                  })
-                }
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-xs disabled:opacity-40 whitespace-nowrap shrink-0"
-              >
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                <span>Export Excel</span>
-              </button>
-            )}
-          </div>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={records.length === 0}
+              onClick={() =>
+                exportToExcel(records, {
+                  mode: exportMode,
+                  customFormat,
+                  filenamePrefix: `BSEB_Custom_Report_${sentUpYear}`,
+                  annualYear,
+                  sentUpYear,
+                })
+              }
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 shadow-2xs disabled:opacity-40 whitespace-nowrap shrink-0 transition-colors"
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              <span>Export Excel</span>
+            </button>
+          )}
         </div>
 
         {/* School / College Details & Exam Year Bar */}
@@ -959,19 +1058,79 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
             </div>
           )}
 
+          {!schoolCodeValidation.valid && (
+            <div className="sm:col-span-12 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 font-semibold">
+                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{schoolCodeValidation.reason}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {schoolCodeValidation.suggestedCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const suggested = schoolCodeValidation.suggestedCode!;
+                      setDefaultSchoolCode(suggested);
+                      const matched = (allRecords || records).find(
+                        (r) => (r.schoolCode || r.rollCode || '').trim() === suggested
+                      );
+                      if (matched?.schoolName) setDefaultSchoolName(matched.schoolName);
+                    }}
+                    className="rounded-lg bg-rose-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-rose-800"
+                  >
+                    Use Code {schoolCodeValidation.suggestedCode}
+                  </button>
+                )}
+                {onSwitchModule && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onSwitchModule(
+                        schoolCodeValidation.lock === '10TH_ONLY' ? 'MATRIC' : 'INTERMEDIATE'
+                      )
+                    }
+                    className="rounded-lg border border-rose-300 bg-white px-2.5 py-1 text-[11px] font-bold text-rose-800 hover:bg-rose-100"
+                  >
+                    Switch to {schoolCodeValidation.lock === '10TH_ONLY' ? '10th Matric' : '12th Inter'}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="sm:col-span-2">
-            <label
-              htmlFor="panji-school-code"
-              className="block text-[11px] font-semibold text-slate-600 mb-1"
-            >
-              {sheetTab === '10TH_SENTUP' ? 'School Code' : '+2 School/College Code'}
-            </label>
+            <div className="flex items-center justify-between gap-1 mb-1">
+              <label
+                htmlFor="panji-school-code"
+                className="block text-[11px] font-semibold text-slate-600"
+              >
+                {sheetTab === '10TH_SENTUP' ? 'School Code' : '+2 School/College Code'}
+              </label>
+              {schoolCodeValidation.valid &&
+                (schoolCodeValidation.lock === '10TH_ONLY' ||
+                  schoolCodeValidation.lock === '12TH_ONLY') && (
+                  <span
+                    className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold ${
+                      schoolCodeValidation.lock === '10TH_ONLY'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-indigo-100 text-indigo-800'
+                    }`}
+                  >
+                    <Lock className="h-2.5 w-2.5" />
+                    {schoolCodeValidation.lock === '10TH_ONLY' ? '10th' : '12th'}
+                  </span>
+                )}
+            </div>
             <input
               id="panji-school-code"
               type="text"
               value={defaultSchoolCode}
               onChange={(e) => setDefaultSchoolCode(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-slate-50/60 px-3 py-1.5 font-mono text-xs font-bold text-slate-900 focus:border-slate-900 focus:bg-white focus:outline-none"
+              className={`w-full rounded-lg border px-3 py-1.5 font-mono text-xs font-bold focus:bg-white focus:outline-none ${
+                schoolCodeValidation.valid
+                  ? 'border-slate-300 bg-slate-50/60 text-slate-900 focus:border-slate-900'
+                  : 'border-rose-500 bg-rose-50 text-rose-900 focus:border-rose-600 ring-1 ring-rose-300'
+              }`}
             />
           </div>
 
@@ -995,8 +1154,14 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
               {records.length > 0 && (
                 <button
                   type="button"
+                  disabled={!schoolCodeValidation.valid}
+                  title={
+                    !schoolCodeValidation.valid
+                      ? schoolCodeValidation.reason
+                      : 'Apply school code & name to all visible students'
+                  }
                   onClick={handleApplySchoolToAll}
-                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 whitespace-nowrap shrink-0"
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   Apply All
                 </button>

@@ -27,6 +27,68 @@ export interface ExcelExportOptions {
   sentUpYear?: string;
 }
 
+export interface CapturedWorkbookFile {
+  filename: string;
+  bytes: Uint8Array;
+}
+
+type WorkbookCaptureHandler = (file: CapturedWorkbookFile) => void;
+let activeWorkbookCaptureHandler: WorkbookCaptureHandler | null = null;
+
+/**
+ * Temporarily captures all Excel (.xlsx) workbooks generated during `fn()`
+ * as Uint8Array bytes instead of triggering individual browser downloads.
+ */
+export function runWithWorkbookCapture(fn: () => void): CapturedWorkbookFile[] {
+  const captured: CapturedWorkbookFile[] = [];
+  const prev = activeWorkbookCaptureHandler;
+  activeWorkbookCaptureHandler = (file) => captured.push(file);
+  try {
+    fn();
+  } finally {
+    activeWorkbookCaptureHandler = prev;
+  }
+  return captured;
+}
+
+function saveOrCaptureWorkbook(wb: XLSX.WorkBook, filename: string): void {
+  const safeFilename = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+  if (activeWorkbookCaptureHandler) {
+    const out = XLSXStyle.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer | Uint8Array;
+    const bytes = out instanceof Uint8Array ? out : new Uint8Array(out);
+    activeWorkbookCaptureHandler({ filename: safeFilename, bytes });
+    return;
+  }
+  XLSXStyle.writeFile(wb, safeFilename);
+}
+
+const FACULTY_SORT_ORDER: Record<string, number> = {
+  SCIENCE: 0,
+  ARTS: 1,
+  COMMERCE: 2,
+  VOCATIONAL: 3,
+  SECONDARY: 4,
+};
+
+/**
+ * Orders 12th Intermediate records strictly as: SCIENCE first, then ARTS, then COMMERCE
+ * (preserving relative order within each faculty and leaving 10th Matric records untouched).
+ */
+export function sort12thRecordsByFaculty(records: AdmitCardRecord[]): AdmitCardRecord[] {
+  return records
+    .map((rec, index) => ({ rec, index }))
+    .sort((a, b) => {
+      const aIsInter = a.rec.examType === 'INTERMEDIATE (+2)';
+      const bIsInter = b.rec.examType === 'INTERMEDIATE (+2)';
+      if (!aIsInter || !bIsInter) return a.index - b.index;
+      const fa = FACULTY_SORT_ORDER[(a.rec.faculty || '').toUpperCase()] ?? 99;
+      const fb = FACULTY_SORT_ORDER[(b.rec.faculty || '').toUpperCase()] ?? 99;
+      if (fa !== fb) return fa - fb;
+      return a.index - b.index;
+    })
+    .map((item) => item.rec);
+}
+
 const BORDER_THIN_BLACK = {
   top: { style: 'thin', color: { rgb: '000000' } },
   bottom: { style: 'thin', color: { rgb: '000000' } },
@@ -222,9 +284,10 @@ export function build12thSentUpWorksheet(
   annualYear = '2027',
   sentUpYear = '2026'
 ): XLSX.WorkSheet {
-  const schoolCode = records[0]?.schoolCode || '31337';
+  const orderedRecords = sort12thRecordsByFaculty(records);
+  const schoolCode = orderedRecords[0]?.schoolCode || '31337';
   const schoolName =
-    records[0]?.schoolName || 'UCHCH MADHYAMIK VIDYALAYA BERUA, GAIGHAT, MUZAFFARPUR';
+    orderedRecords[0]?.schoolName || 'UCHCH MADHYAMIK VIDYALAYA BERUA, GAIGHAT, MUZAFFARPUR';
 
   // Subject Name columns in 0-indexed 30-column sheet:
   // Col 4 (#5 Compulsory Sub-1), Col 6 (#7 Compulsory Sub-2),
@@ -342,7 +405,7 @@ export function build12thSentUpWorksheet(
     Array.from({ length: 30 }, (_, i) => i + 1),
   ];
 
-  records.forEach((r, idx) => {
+  orderedRecords.forEach((r, idx) => {
     const s = getEffectiveInterSentUp(r);
     const mf = r.gender === 'MALE' ? 'M' : 'F';
     const stackedNames = [r.studentName, r.fatherName, r.motherName]
@@ -911,7 +974,7 @@ export function exportVocational12thExcel(
   const wsVoc = build12thVocationalWorksheet(records, annualYear, sentUpYear);
   XLSXStyle.utils.book_append_sheet(wb, wsVoc, '12th_Vocational_2026');
 
-  XLSXStyle.writeFile(wb, `${filenamePrefix}.xlsx`);
+  saveOrCaptureWorkbook(wb, `${filenamePrefix}.xlsx`);
 }
 
 /**
@@ -1037,7 +1100,7 @@ export function exportAbsent12thExcel(
   XLSXStyle.utils.book_append_sheet(wb, wsArts, 'ARTS_Absent');
   XLSXStyle.utils.book_append_sheet(wb, wsComm, 'COMMERCE_Absent');
 
-  XLSXStyle.writeFile(wb, `${filenamePrefix}.xlsx`);
+  saveOrCaptureWorkbook(wb, `${filenamePrefix}.xlsx`);
 }
 
 /**
@@ -1368,7 +1431,7 @@ export function exportAbsent10thExcel(
   const wb = XLSXStyle.utils.book_new();
   const ws = build10thAbsentWorksheet(records, annualYear, sentUpYear);
   XLSXStyle.utils.book_append_sheet(wb, ws, `10th_Absent_${sentUpYear}`);
-  XLSXStyle.writeFile(wb, `${filenamePrefix}.xlsx`);
+  saveOrCaptureWorkbook(wb, `${filenamePrefix}.xlsx`);
 }
 
 /**
@@ -1629,7 +1692,7 @@ export function exportVisuallyImpairedSentUp10thExcel(
   const wb = XLSXStyle.utils.book_new();
   const ws = build10thVisuallyImpairedSentUpWorksheet(records, annualYear, sentUpYear);
   XLSXStyle.utils.book_append_sheet(wb, ws, `10th_VI_SentUp_${sentUpYear}`);
-  XLSXStyle.writeFile(wb, `${filenamePrefix}.xlsx`);
+  saveOrCaptureWorkbook(wb, `${filenamePrefix}.xlsx`);
 }
 
 /**
@@ -1668,7 +1731,7 @@ export function exportVisuallyImpairedAbsent10thExcel(
   const wb = XLSXStyle.utils.book_new();
   const ws = build10thVisuallyImpairedAbsentWorksheet(records, annualYear, sentUpYear);
   XLSXStyle.utils.book_append_sheet(wb, ws, `10th_VI_Absent_${sentUpYear}`);
-  XLSXStyle.writeFile(wb, `${filenamePrefix}.xlsx`);
+  saveOrCaptureWorkbook(wb, `${filenamePrefix}.xlsx`);
 }
 
 /**
@@ -1830,7 +1893,7 @@ export function downloadBlankMarksTemplate(records: AdmitCardRecord[]): void {
 
   XLSXStyle.utils.book_append_sheet(wb, ws, 'Marks_Entry_Sheet');
   const dateStamp = new Date().toISOString().slice(0, 10);
-  XLSXStyle.writeFile(wb, `BSEB_Marks_Entry_Template_${records.length}_Students_${dateStamp}.xlsx`);
+  saveOrCaptureWorkbook(wb, `BSEB_Marks_Entry_Template_${records.length}_Students_${dateStamp}.xlsx`);
 }
 
 /**
@@ -1842,6 +1905,8 @@ export function exportToExcel(
   options: ExcelExportOptions = {}
 ): void {
   if (records.length === 0) return;
+  const sortedRecords = sort12thRecordsByFaculty(records);
+  records = sortedRecords;
 
   const {
     mode = options.customFormat ? 'CUSTOM_UPLOADED' : 'BSEB_12TH_SENTUP',
@@ -1952,7 +2017,7 @@ export function exportToExcel(
   XLSXStyle.utils.book_append_sheet(wb, wsSummary, 'Summary');
 
   const dateStamp = new Date().toISOString().slice(0, 10);
-  XLSXStyle.writeFile(wb, `${filenamePrefix}_${records.length}_Students_${dateStamp}.xlsx`);
+  saveOrCaptureWorkbook(wb, `${filenamePrefix}_${records.length}_Students_${dateStamp}.xlsx`);
 }
 
 /**
@@ -1995,6 +2060,7 @@ export function exportSentUp12thPdf(
 ): void {
   const { annualYear = '2027', sentUpYear = '2026' } = options;
   if (records.length === 0) return;
+  const orderedRecords = sort12thRecordsByFaculty(records);
 
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -2002,9 +2068,9 @@ export function exportSentUp12thPdf(
     format: 'a4',
   });
 
-  const schoolCode = records[0]?.schoolCode || '31337';
+  const schoolCode = orderedRecords[0]?.schoolCode || '31337';
   const schoolName =
-    records[0]?.schoolName || 'UCHCH MADHYAMIK VIDYALAYA BERUA, GAIGHAT, MUZAFFARPUR';
+    orderedRecords[0]?.schoolName || 'UCHCH MADHYAMIK VIDYALAYA BERUA, GAIGHAT, MUZAFFARPUR';
 
   // 0-indexed columns in the 30-column table whose body values are rotated 90 degrees:
   // Col 1 (#2 Registration No) + Subject Name cols: 4 (#5), 6 (#7), 8 (#9), 12 (#13), 16 (#17), 21 (#22), 25 (#26)
@@ -2026,7 +2092,7 @@ export function exportSentUp12thPdf(
     doc.text('BIHAR SCHOOL EXAMINATION BOARD, PATNA', 148.5, 9, { align: 'center' });
 
     doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.35);
+    doc.setLineWidth(0.25);
     doc.rect(8, 11, 281, 6.5);
     if (hindiSubHeaderPng) {
       try {
@@ -2066,7 +2132,7 @@ export function exportSentUp12thPdf(
 
   drawPageHeader();
 
-  const bodyRows = records.map((r, idx) => {
+  const bodyRows = orderedRecords.map((r, idx) => {
     const s = getEffectiveInterSentUp(r);
     const mf = r.gender === 'MALE' ? 'M' : 'F';
     const stackedNames = [r.studentName, r.fatherName, r.motherName]
@@ -2109,6 +2175,7 @@ export function exportSentUp12thPdf(
 
   autoTable(doc, {
     startY: 28.5,
+    tableWidth: 281,
     margin: { top: 28.5, left: 8, right: 8, bottom: 15 },
     head: [
       [
@@ -2179,35 +2246,35 @@ export function exportSentUp12thPdf(
     },
     columnStyles: {
       0: { cellWidth: 6.5 },
-      1: { cellWidth: 9.5, fontStyle: 'bold' },
-      2: { cellWidth: 42, halign: 'left', fontStyle: 'bold' },
+      1: { cellWidth: 10.5, fontStyle: 'bold' },
+      2: { cellWidth: 44, halign: 'left', fontStyle: 'bold' },
       3: { cellWidth: 6.5, fontStyle: 'bold' },
-      4: { cellWidth: 8.5 },
+      4: { cellWidth: 9 },
       5: { cellWidth: 7.5, fontStyle: 'bold' },
-      6: { cellWidth: 8.5 },
+      6: { cellWidth: 9 },
       7: { cellWidth: 7.5, fontStyle: 'bold' },
-      8: { cellWidth: 9.5 },
+      8: { cellWidth: 10 },
       9: { cellWidth: 7 },
       10: { cellWidth: 7 },
       11: { cellWidth: 7.5, fontStyle: 'bold' },
-      12: { cellWidth: 9.5 },
+      12: { cellWidth: 10 },
       13: { cellWidth: 7 },
       14: { cellWidth: 7 },
       15: { cellWidth: 7.5, fontStyle: 'bold' },
-      16: { cellWidth: 9.5 },
+      16: { cellWidth: 10 },
       17: { cellWidth: 7 },
       18: { cellWidth: 7 },
       19: { cellWidth: 7.5, fontStyle: 'bold' },
-      20: { cellWidth: 10.5, fontStyle: 'bold', fontSize: 6.8 },
-      21: { cellWidth: 9 },
-      22: { cellWidth: 6.5 },
-      23: { cellWidth: 6.5 },
-      24: { cellWidth: 7 },
-      25: { cellWidth: 8.5 },
-      26: { cellWidth: 6.5 },
-      27: { cellWidth: 6.5 },
-      28: { cellWidth: 6.5 },
-      29: { cellWidth: 12, fontStyle: 'bold' },
+      20: { cellWidth: 11.5, fontStyle: 'bold', fontSize: 6.8 },
+      21: { cellWidth: 9.5 },
+      22: { cellWidth: 7 },
+      23: { cellWidth: 7 },
+      24: { cellWidth: 7.5 },
+      25: { cellWidth: 9.5 },
+      26: { cellWidth: 7 },
+      27: { cellWidth: 7 },
+      28: { cellWidth: 7 },
+      29: { cellWidth: 13, fontStyle: 'bold' },
     },
     didParseCell: (data) => {
       if (data.section === 'head') {
@@ -2309,7 +2376,7 @@ export function exportSentUp10thPdf(
 
   const drawPageHeader10 = () => {
     doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.3);
+    doc.setLineWidth(0.25);
     doc.rect(8, 7, 281, 10);
 
     doc.setTextColor(0, 0, 0);
@@ -2378,6 +2445,7 @@ export function exportSentUp10thPdf(
 
   autoTable(doc, {
     startY: 27,
+    tableWidth: 281,
     margin: { top: 27, left: 8, right: 8, bottom: 14 },
     head: [
       [
@@ -2454,7 +2522,7 @@ export function exportSentUp10thPdf(
       19: { cellWidth: 8.5, fontStyle: 'bold' },
       20: { cellWidth: 9 },
       21: { cellWidth: 10 },
-      22: { cellWidth: 13.5, fontStyle: 'bold', fontSize: 6.8 },
+      22: { cellWidth: 14, fontStyle: 'bold', fontSize: 6.8 },
     },
     didParseCell: (data) => {
       if (data.section === 'head') {
@@ -2548,7 +2616,7 @@ export function exportVocational12thPdf(
     doc.text('BIHAR SCHOOL EXAMINATION BOARD, PATNA', 148.5, 9, { align: 'center' });
 
     doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.35);
+    doc.setLineWidth(0.25);
     doc.rect(8, 11, 281, 6.5);
     if (hindiSubHeaderPng) {
       try {
@@ -2639,6 +2707,7 @@ export function exportVocational12thPdf(
 
   autoTable(doc, {
     startY: 28.5,
+    tableWidth: 281,
     margin: { top: 28.5, left: 8, right: 8, bottom: 15 },
     head: [
       [
@@ -2700,29 +2769,29 @@ export function exportVocational12thPdf(
     },
     columnStyles: {
       0: { cellWidth: 9, halign: 'center' },
-      1: { cellWidth: 15, halign: 'center', fontStyle: 'bold' },
-      2: { cellWidth: 34, halign: 'left' },
-      3: { cellWidth: 7, halign: 'center' },
-      4: { cellWidth: 11, halign: 'center' },
-      5: { cellWidth: 8, halign: 'center' },
-      6: { cellWidth: 11, halign: 'center' },
-      7: { cellWidth: 8, halign: 'center' },
-      8: { cellWidth: 14, halign: 'center' },
-      9: { cellWidth: 8, halign: 'center' },
-      10: { cellWidth: 12, halign: 'center' },
-      11: { cellWidth: 8, halign: 'center' },
-      12: { cellWidth: 8, halign: 'center' },
-      13: { cellWidth: 8, halign: 'center' },
-      14: { cellWidth: 12, halign: 'center' },
-      15: { cellWidth: 8, halign: 'center' },
-      16: { cellWidth: 8, halign: 'center' },
-      17: { cellWidth: 8, halign: 'center' },
-      18: { cellWidth: 12, halign: 'center', fontStyle: 'bold' },
-      19: { cellWidth: 12, halign: 'center' },
-      20: { cellWidth: 8, halign: 'center' },
-      21: { cellWidth: 8, halign: 'center' },
-      22: { cellWidth: 8, halign: 'center' },
-      23: { cellWidth: 13, halign: 'center', fontStyle: 'bold' },
+      1: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+      2: { cellWidth: 41, halign: 'left' },
+      3: { cellWidth: 7.5, halign: 'center' },
+      4: { cellWidth: 12, halign: 'center' },
+      5: { cellWidth: 8.5, halign: 'center' },
+      6: { cellWidth: 12, halign: 'center' },
+      7: { cellWidth: 8.5, halign: 'center' },
+      8: { cellWidth: 15, halign: 'center' },
+      9: { cellWidth: 8.5, halign: 'center' },
+      10: { cellWidth: 13, halign: 'center' },
+      11: { cellWidth: 8.5, halign: 'center' },
+      12: { cellWidth: 8.5, halign: 'center' },
+      13: { cellWidth: 8.5, halign: 'center' },
+      14: { cellWidth: 13, halign: 'center' },
+      15: { cellWidth: 8.5, halign: 'center' },
+      16: { cellWidth: 8.5, halign: 'center' },
+      17: { cellWidth: 8.5, halign: 'center' },
+      18: { cellWidth: 13, halign: 'center', fontStyle: 'bold' },
+      19: { cellWidth: 13, halign: 'center' },
+      20: { cellWidth: 8.5, halign: 'center' },
+      21: { cellWidth: 8.5, halign: 'center' },
+      22: { cellWidth: 8.5, halign: 'center' },
+      23: { cellWidth: 14.5, halign: 'center', fontStyle: 'bold' },
     },
     didParseCell: (data) => {
       if (data.section === 'head') {
@@ -2824,7 +2893,7 @@ export function exportAbsent12thPdf(
     doc.text('BIHAR SCHOOL EXAMINATION BOARD, PATNA', 148.5, 9, { align: 'center' });
 
     doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.35);
+    doc.setLineWidth(0.25);
     doc.rect(8, 11, 281, 6.5);
     if (hindiSubHeaderPng) {
       try {
@@ -2901,6 +2970,7 @@ export function exportAbsent12thPdf(
 
     autoTable(doc, {
       startY: 28.5,
+      tableWidth: 281,
       margin: { top: 28.5, left: 8, right: 8, bottom: 15 },
       head: [
         [
@@ -2921,7 +2991,7 @@ export function exportAbsent12thPdf(
         fontSize: 8.5,
         textColor: [0, 0, 0],
         lineColor: [0, 0, 0],
-        lineWidth: 0.3,
+        lineWidth: 0.25,
         cellPadding: 2,
         valign: 'middle',
         font: 'helvetica',
@@ -3021,7 +3091,7 @@ function generate10th24ColPdf(
 
   const drawPageHeader = () => {
     doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.3);
+    doc.setLineWidth(0.25);
     doc.rect(8, 7, 281, 10);
 
     doc.setTextColor(0, 0, 0);
@@ -3107,6 +3177,7 @@ function generate10th24ColPdf(
 
   autoTable(doc, {
     startY: 27,
+    tableWidth: 281,
     margin: { top: 27, left: 8, right: 8, bottom: 14 },
     head: [
       [
@@ -3125,14 +3196,14 @@ function generate10th24ColPdf(
         { content: 'AGGREGA-\nTATE', rowSpan: 3 },
       ],
       [
-        { content: 'MIL' },
-        { content: 'SIL' },
-        { content: 'MAT' },
-        { content: 'SCI' },
-        { content: 'SSC' },
-        { content: 'ENG' },
-        { content: 'OPT-\nSUB' },
-        { content: 'OPT-SUB\n(Vocatonal)' },
+        { content: 'MIL', rowSpan: 2 },
+        { content: 'SIL', rowSpan: 2 },
+        { content: 'MAT', rowSpan: 2 },
+        { content: 'SCI', rowSpan: 2 },
+        { content: 'SSC', rowSpan: 2 },
+        { content: 'ENG', rowSpan: 2 },
+        { content: 'OPT-\nSUB', rowSpan: 2 },
+        { content: 'OPT-SUB\n(Vocatonal)', rowSpan: 2 },
         { content: 'SCI', rowSpan: 2 },
         { content: 'SSC', colSpan: 2 },
         { content: 'OPT-\nSUB', rowSpan: 2 },
@@ -3191,15 +3262,15 @@ function generate10th24ColPdf(
     },
     columnStyles: {
       0: { cellWidth: 6.5 },
-      1: { cellWidth: 8, fontStyle: 'bold' },
-      2: { cellWidth: 15, fontStyle: 'bold' },
-      3: { cellWidth: 20, fontStyle: 'bold' },
-      4: { cellWidth: 25, fontStyle: 'bold' },
-      5: { cellWidth: 22 },
-      6: { cellWidth: 24 },
-      7: { cellWidth: 14, fontStyle: 'bold' },
-      8: { cellWidth: 10, fontStyle: 'bold' },
-      9: { cellWidth: 11, fontStyle: 'bold' },
+      1: { cellWidth: 8.5, fontStyle: 'bold' },
+      2: { cellWidth: 16, fontStyle: 'bold' },
+      3: { cellWidth: 21, fontStyle: 'bold' },
+      4: { cellWidth: 26.5, fontStyle: 'bold' },
+      5: { cellWidth: 23.5 },
+      6: { cellWidth: 25.5 },
+      7: { cellWidth: 14.5, fontStyle: 'bold' },
+      8: { cellWidth: 10.5, fontStyle: 'bold' },
+      9: { cellWidth: 11.5, fontStyle: 'bold' },
       10: { cellWidth: 7.5, fontStyle: 'bold' },
       11: { cellWidth: 7.5, fontStyle: 'bold' },
       12: { cellWidth: 7.5, fontStyle: 'bold' },
@@ -3213,7 +3284,7 @@ function generate10th24ColPdf(
       20: { cellWidth: 7.5, fontStyle: 'bold' },
       21: { cellWidth: 8.5 },
       22: { cellWidth: 9.5 },
-      23: { cellWidth: 12, fontStyle: 'bold' },
+      23: { cellWidth: 13.5, fontStyle: 'bold' },
     },
     didParseCell: (data) => {
       if (data.section === 'head') {
@@ -3341,7 +3412,7 @@ export function exportVisuallyImpairedSentUp10thPdf(
 
   const drawPageHeader = () => {
     doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.3);
+    doc.setLineWidth(0.25);
     doc.rect(8, 7, 281, 10);
 
     doc.setTextColor(0, 0, 0);
@@ -3424,6 +3495,7 @@ export function exportVisuallyImpairedSentUp10thPdf(
 
   autoTable(doc, {
     startY: 27,
+    tableWidth: 281,
     margin: { top: 27, left: 8, right: 8, bottom: 14 },
     head: [
       [
@@ -3441,14 +3513,14 @@ export function exportVisuallyImpairedSentUp10thPdf(
         { content: 'AGGREGA-\nTATE', rowSpan: 3 },
       ],
       [
-        { content: 'MIL' },
-        { content: 'SIL' },
-        { content: 'MAT' },
-        { content: 'SCI' },
-        { content: 'SSC' },
-        { content: 'ENG' },
-        { content: 'OPT-\nSUB' },
-        { content: 'OPT-SUB\n(Vocatonal)' },
+        { content: 'MIL', rowSpan: 2 },
+        { content: 'SIL', rowSpan: 2 },
+        { content: 'MAT', rowSpan: 2 },
+        { content: 'SCI', rowSpan: 2 },
+        { content: 'SSC', rowSpan: 2 },
+        { content: 'ENG', rowSpan: 2 },
+        { content: 'OPT-\nSUB', rowSpan: 2 },
+        { content: 'OPT-SUB\n(Vocatonal)', rowSpan: 2 },
         { content: 'SCI', rowSpan: 2 },
         { content: 'SSC', colSpan: 2 },
         { content: 'OPT-\nSUB', rowSpan: 2 },
@@ -3527,7 +3599,7 @@ export function exportVisuallyImpairedSentUp10thPdf(
       19: { cellWidth: 8.5, fontStyle: 'bold' },
       20: { cellWidth: 9 },
       21: { cellWidth: 10 },
-      22: { cellWidth: 13.5, fontStyle: 'bold' },
+      22: { cellWidth: 14, fontStyle: 'bold' },
     },
     didParseCell: (data) => {
       if (data.section === 'head') {
@@ -3630,6 +3702,7 @@ export function exportToPdfReport(
   mode?: ExportFormatMode
 ): void {
   if (records.length === 0) return;
+  records = sort12thRecordsByFaculty(records);
 
   if (mode === 'BSEB_12TH_SENTUP') {
     exportSentUp12thPdf(records, '12th_Sent-Up_Exam.-2026_Annual-2027');
@@ -3735,6 +3808,7 @@ export function exportToPdfReport(
   autoTable(doc, {
     startY: 29,
     margin: { left: 10, right: 10, bottom: 16 },
+    tableWidth: 277,
     head: [
       [
         '#',
@@ -4088,6 +4162,7 @@ export function exportAttendanceSheetPdf(
     autoTable(doc, {
       startY: 49,
       margin: { left: marginX, right: marginX, top: 14, bottom: 26 },
+      tableWidth: contentW,
       head: [headRow],
       body: bodyRows,
       theme: 'grid',
@@ -4373,6 +4448,6 @@ export function exportAttendanceSheetExcel(
   const classSlug = sanitizeFileSegment(config.classLabel.includes('10') ? '10th' : '12th');
   const subjSlug = sanitizeFileSegment(config.subjectLabel);
   const dateSlug = config.examDate || new Date().toISOString().slice(0, 10);
-  XLSXStyle.writeFile(wb, `Attendance_${classSlug}_${subjSlug}_${dateSlug}.xlsx`);
+  saveOrCaptureWorkbook(wb, `Attendance_${classSlug}_${subjSlug}_${dateSlug}.xlsx`);
 }
 

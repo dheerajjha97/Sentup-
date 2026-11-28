@@ -1,5 +1,6 @@
 import {
   AdmitCardRecord,
+  ClerkAssignment,
   InterSentUpMarks,
   MatricSentUpMarks,
   TeacherAssignment,
@@ -17,11 +18,11 @@ export function normalizeSchoolCode(schoolCode?: string, rollCode?: string): str
   const candidates = [schoolCode, rollCode];
   for (const raw of candidates) {
     const trimmed = (raw || '').trim().toUpperCase();
-    if (!trimmed || trimmed === 'N/A' || trimmed === 'UNKNOWN') continue;
-    const prefixCode = trimmed.match(/^([A-Z0-9]{4,8})\s*[-–:|]\s*/);
+    if (!trimmed || trimmed === 'N/A' || trimmed === 'UNKNOWN' || trimmed === '---') continue;
+    const prefixCode = trimmed.match(/^([A-Z0-9]{4,8})\s*[-–:|/]\s*/);
     if (prefixCode) return prefixCode[1];
-    const digitsOnly = trimmed.match(/\b(\d{4,6})\b/);
-    if (digitsOnly && trimmed.length > 10) return digitsOnly[1];
+    const numericMatch = trimmed.match(/(?:^|\D)(\d{4,6})(?:\D|$)/);
+    if (numericMatch) return numericMatch[1];
     return trimmed;
   }
   return '';
@@ -397,6 +398,33 @@ export function computeAssignedTeacherEmailsForStudent(
     if (!matchesAnySubject) continue;
 
     const cleanEmail = (a.teacherEmail || '').trim().toLowerCase();
+    if (cleanEmail) {
+      emails.add(cleanEmail);
+    }
+    if (emails.size >= 30) break;
+  }
+
+  return Array.from(emails);
+}
+
+/**
+ * Computes the exact bounded list (max 30) of active lowercase clerk emails
+ * granted strictly read-only print access for a given student record.
+ */
+export function computeAssignedClerkEmailsForStudent(
+  record: AdmitCardRecord,
+  clerkAssignments: ClerkAssignment[]
+): string[] {
+  const studentSchool = normalizeSchoolCode(record.schoolCode, record.rollCode);
+  const emails = new Set<string>();
+
+  for (const c of clerkAssignments) {
+    if (!c.active) continue;
+    const assignSchool = normalizeSchoolCode(c.schoolCode);
+    if (!assignSchool || assignSchool !== studentSchool) continue;
+    if (!c.assignedClasses.includes(record.examType)) continue;
+
+    const cleanEmail = (c.clerkEmail || '').trim().toLowerCase();
     if (cleanEmail) {
       emails.add(cleanEmail);
     }
