@@ -4,32 +4,20 @@ import {
   Users,
   GraduationCap,
   Award,
-  BarChart3,
-  FileSpreadsheet,
-  FileText,
   Search,
   BookOpen,
-  Printer,
   ChevronRight,
-  Sparkles,
   School,
-  CheckCircle2,
   Eye,
-  Filter,
   Lock,
   Link2,
   Unlink,
   AlertTriangle,
 } from 'lucide-react';
-import { AdmitCardRecord, ExamType, FacultyType } from '../types/admitCard';
+import { AdmitCardRecord } from '../types/admitCard';
 import {
   calculateStudentMarksSummary,
 } from '../utils/marksAndFormat';
-import {
-  exportToExcel,
-  exportSentUp12thPdf,
-  exportSentUp10thPdf,
-} from '../utils/exportReports';
 import {
   SchoolCodeClassLock,
   SchoolCodePair,
@@ -266,108 +254,60 @@ export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> =
     onSaveCodePairs(codePairs.filter((p) => p.id !== pairId));
   };
 
-  // Resolve export class automatically if a single locked school is selected
-  const resolvedExportIs10th = useMemo(() => {
-    if (classFilter === '10TH') return true;
-    if (classFilter === '12TH') return false;
-    if (selectedSchoolCode !== 'ALL') {
-      const eff = getEffectiveCodeLock(selectedSchoolCode, records, codeRules, codePairs);
-      if (eff?.lock === '10TH_ONLY') return true;
-      if (eff?.lock === '12TH_ONLY') return false;
-    }
-    return analytics.matricCount > 0 && analytics.interCount === 0;
-  }, [classFilter, selectedSchoolCode, records, codeRules, codePairs, analytics]);
-
-  // Quick Export Handlers
-  const handleExportExcel = () => {
-    exportToExcel(currentSchoolGroup.records, {
-      mode: resolvedExportIs10th ? 'BSEB_10TH_SENTUP' : 'BSEB_12TH_SENTUP',
-      filenamePrefix: `Combined_School_${currentSchoolGroup.code}`,
-      annualYear: '2027',
-      sentUpYear: '2026',
-    });
-  };
-
-  const handleExportPdf = () => {
-    if (resolvedExportIs10th) {
-      exportSentUp10thPdf(
-        currentSchoolGroup.records,
-        `School_${currentSchoolGroup.code}_10th_SentUp`,
-        { annualYear: '2027', sentUpYear: '2026' }
-      );
-    } else {
-      exportSentUp12thPdf(
-        currentSchoolGroup.records,
-        `School_${currentSchoolGroup.code}_12th_SentUp`,
-        { annualYear: '2027', sentUpYear: '2026' }
-      );
-    }
-  };
-
   return (
     <div className="space-y-4 sm:space-y-5 animate-in fade-in duration-300">
-      {/* Flutter Glassmorphic Top Header */}
-      <div className="relative overflow-hidden rounded-3xl border border-white/60 bg-white/70 p-4 sm:p-6 shadow-xl shadow-indigo-100/50 backdrop-blur-xl">
-        <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-gradient-to-br from-indigo-400/20 via-purple-400/20 to-teal-400/10 blur-2xl pointer-events-none" />
-        <div className="absolute -left-12 -bottom-12 h-40 w-40 rounded-full bg-gradient-to-tr from-blue-400/20 via-indigo-400/20 to-emerald-400/10 blur-2xl pointer-events-none" />
-
+      {/* Top Header */}
+      <div className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-xs">
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 text-white shadow-lg shadow-indigo-500/20 shrink-0">
-              <Building2 className="h-6 w-6" />
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shrink-0">
+              <Building2 className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
-                  Universal School Dashboard
-                </h1>
-                <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-0.5 font-mono text-[11px] font-bold text-indigo-800">
-                  <Sparkles className="h-3 w-3 text-indigo-600" />
-                  {schoolGroups.length} {schoolGroups.length === 1 ? 'School' : 'Schools'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Combined 10th Matric &amp; 12th Intermediate Analytics
+              <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                Universal School Dashboard
+              </h1>
+              <p className="text-xs text-slate-500 mt-0.5 font-mono tabular-nums">
+                {schoolGroups.length} {schoolGroups.length === 1 ? 'School Code' : 'School Codes'} · Combined 10th Matric &amp; 12th Intermediate Analytics
               </p>
             </div>
           </div>
 
           {/* Class Filter Segmented Control & School Selector */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Flutter Material 3 Glass Segmented Pills */}
-            <div className="inline-flex items-center rounded-2xl border border-indigo-200/60 bg-indigo-50/60 p-1 backdrop-blur-md">
+            <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 p-1">
               <button
                 type="button"
                 onClick={() => setClassFilter('ALL')}
-                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-all whitespace-nowrap ${
                   classFilter === 'ALL'
-                    ? 'bg-white text-indigo-950 shadow-md shadow-indigo-100 ring-1 ring-indigo-200'
+                    ? 'bg-white text-indigo-950 shadow-2xs ring-1 ring-slate-200'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <span>✨ All Combined</span>
+                All Combined
               </button>
               <button
                 type="button"
                 onClick={() => setClassFilter('12TH')}
-                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-all whitespace-nowrap ${
                   classFilter === '12TH'
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/20'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <span>🎓 12th Inter</span>
+                12th Inter
               </button>
               <button
                 type="button"
                 onClick={() => setClassFilter('10TH')}
-                className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition-all ${
+                className={`inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-all whitespace-nowrap ${
                   classFilter === '10TH'
-                    ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                <span>🏫 10th Matric</span>
+                10th Matric
               </button>
             </div>
 
@@ -376,7 +316,7 @@ export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> =
               aria-label="Select School Code"
               value={selectedSchoolCode}
               onChange={(e) => setSelectedSchoolCode(e.target.value)}
-              className="rounded-2xl border border-slate-200 bg-white/80 px-3.5 py-2 text-xs font-bold text-slate-900 shadow-sm focus:border-indigo-600 focus:outline-none min-w-[180px]"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 focus:border-indigo-600 focus:outline-none min-w-[170px]"
             >
               <option value="ALL">All Schools ({filteredRecordsByClass.length})</option>
               {schoolGroups.map((sch) => (
@@ -385,39 +325,6 @@ export const SchoolUniversalDashboard: React.FC<SchoolUniversalDashboardProps> =
                 </option>
               ))}
             </select>
-
-            {/* Actions */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                disabled={currentSchoolGroup.records.length === 0}
-                className="inline-flex items-center gap-1 rounded-2xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-sm disabled:opacity-40"
-                title="Export Excel"
-              >
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Excel</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleExportPdf}
-                disabled={currentSchoolGroup.records.length === 0}
-                className="inline-flex items-center gap-1 rounded-2xl bg-indigo-950 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-900 shadow-sm disabled:opacity-40"
-                title="Export PDF"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">PDF</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => window.print()}
-                disabled={currentSchoolGroup.records.length === 0}
-                className="inline-flex items-center gap-1 rounded-2xl border border-slate-200 bg-white/80 px-2.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-                title="Print Summary"
-              >
-                <Printer className="h-3.5 w-3.5 text-slate-600" />
-              </button>
-            </div>
           </div>
         </div>
 

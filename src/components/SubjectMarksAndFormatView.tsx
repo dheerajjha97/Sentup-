@@ -676,9 +676,9 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
             )}
           </div>
 
-          {/* Compact Entry / Upload Buttons */}
+          {/* Compact Entry Actions (Only relevant controls) */}
           <div className="flex flex-wrap items-center gap-1.5">
-            {onTriggerAdmitCardUpload && (
+            {records.length === 0 && onTriggerAdmitCardUpload && (
               <button
                 type="button"
                 onClick={onTriggerAdmitCardUpload}
@@ -704,20 +704,22 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
               <span>+1 Student</span>
             </button>
 
-            <button
-              type="button"
-              disabled={!schoolCodeValidation.valid}
-              title={
-                !schoolCodeValidation.valid
-                  ? schoolCodeValidation.reason
-                  : 'Add 5 blank student rows'
-              }
-              onClick={() => handleAddBlankRows(5)}
-              className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-50 whitespace-nowrap shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>+5 Rows</span>
-            </button>
+            {records.length === 0 && (
+              <button
+                type="button"
+                disabled={!schoolCodeValidation.valid}
+                title={
+                  !schoolCodeValidation.valid
+                    ? schoolCodeValidation.reason
+                    : 'Add 5 blank student rows'
+                }
+                onClick={() => handleAddBlankRows(5)}
+                className="inline-flex items-center gap-1 rounded-lg border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-800 hover:bg-indigo-50 whitespace-nowrap shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>+5 Rows</span>
+              </button>
+            )}
           </div>
         </div>
 

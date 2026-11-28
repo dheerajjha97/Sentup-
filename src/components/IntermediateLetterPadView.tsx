@@ -11,8 +11,6 @@ import {
   Mail,
   Scissors,
   Stamp,
-  FolderArchive,
-  Loader2,
 } from 'lucide-react';
 import { AdmitCardRecord } from '../types/admitCard';
 import { normalizeSchoolCode } from '../utils/teacherSubjectMatcher';
@@ -30,7 +28,6 @@ import {
   padTwoDigits,
   parseCountInt,
 } from '../utils/letterPadProfile';
-import { downloadCompleteClassPackZip } from '../utils/completePackExporter';
 
 export type { LetterClassMode, LetterDocMode };
 
@@ -217,28 +214,8 @@ export const IntermediateLetterPadView: React.FC<IntermediateLetterPadViewProps>
     return schools.length === 1 ? schools[0] : null;
   }, [schools, selectedSchoolCode]);
 
-  const [zipStatus, setZipStatus] = useState<string>('');
-
   const handlePrint = () => {
     window.print();
-  };
-
-  const handleDownloadCompleteZip = async () => {
-    if (scopedRecords.length === 0 || zipStatus) return;
-    try {
-      setZipStatus('Preparing Pack...');
-      await downloadCompleteClassPackZip({
-        classMode,
-        records: scopedRecords,
-        schoolCode: activeSchoolInfo?.code,
-        schoolName: activeSchoolInfo?.name,
-        onProgress: (msg) => setZipStatus(msg),
-      });
-    } catch (err) {
-      console.error('Complete pack export failed:', err);
-    } finally {
-      setZipStatus('');
-    }
   };
 
   const isInter = classMode === 'INTERMEDIATE';
@@ -522,20 +499,6 @@ export const IntermediateLetterPadView: React.FC<IntermediateLetterPadViewProps>
                 </button>
               </div>
             )}
-
-            <button
-              type="button"
-              onClick={handleDownloadCompleteZip}
-              disabled={scopedRecords.length === 0 || Boolean(zipStatus)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
-            >
-              {zipStatus ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-600" />
-              ) : (
-                <FolderArchive className="h-3.5 w-3.5 text-indigo-600" />
-              )}
-              <span>{zipStatus || `Download All ${isInter ? '12th' : '10th'} (ZIP)`}</span>
-            </button>
 
             <button
               type="button"

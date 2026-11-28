@@ -51,7 +51,6 @@ import { computeSummaryStats } from './utils/bsebParser';
 import { extractFromUploadedFile } from './utils/pdfExtractor';
 import {
   exportToExcel,
-  exportToPdfReport,
   exportSentUp12thPdf,
   exportSentUp10thPdf,
   exportAbsent12thPdf,
@@ -1918,85 +1917,44 @@ export default function App() {
             </button>
           )}
 
-          {activeTab !== 'marks' && filteredRecords.length > 0 && (
-            <div className="hidden md:flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() =>
-                  exportToExcel(filteredRecords, {
-                    mode: exportMode,
-                    customFormat,
-                    filenamePrefix:
-                      activeModule === 'INTERMEDIATE'
-                        ? '12th_Sent-Up_Exam.-2026_Annual-2027'
-                        : '10th_Sent-Up_Exam.-2026_BSEB',
-                    annualYear: '2027',
-                    sentUpYear: '2026',
-                  })
-                }
-                title="Download Excel Report"
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-2xs whitespace-nowrap shrink-0"
-              >
-                <FileSpreadsheet className="h-3.5 w-3.5" />
-                <span>Excel</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (activeModule === 'INTERMEDIATE') {
-                    exportSentUp12thPdf(
-                      filteredRecords,
-                      '12th_Sent-Up_Exam.-2026_Annual-2027',
-                      { annualYear: '2027', sentUpYear: '2026' }
-                    );
-                  } else {
-                    exportSentUp10thPdf(
-                      filteredRecords,
-                      '10th_Sent-Up_Exam.-2026_BSEB',
-                      { annualYear: '2027', sentUpYear: '2026' }
-                    );
-                  }
-                }}
-                title="Download PDF Report"
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#1E1B4B] px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-950 shadow-2xs whitespace-nowrap shrink-0"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                <span>PDF</span>
-              </button>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsSettingsOpen(true)}
-            title="Practical & Random Marks Posting Settings"
-            className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full border border-indigo-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-50 shadow-2xs whitespace-nowrap shrink-0"
-          >
-            <Settings className="h-3.5 w-3.5 text-indigo-600" />
-            <span className="hidden sm:inline">Settings</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={progress.isExtracting}
-            title="Upload Admit Card PDF"
-            className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-indigo-600 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 shadow-2xs disabled:opacity-50 whitespace-nowrap shrink-0"
-          >
-            <Upload className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Upload PDF</span>
-            <span className="sm:hidden">Upload</span>
-          </button>
-
-          {currentModuleRecords.length > 0 && (
+          {/* Strictly page-contextual header actions */}
+          {activeTab === 'marks' && (
             <button
               type="button"
-              onClick={handleClearCurrentModule}
-              title={`Clear all ${activeModule === 'INTERMEDIATE' ? '12th Intermediate' : '10th Matric'} students`}
-              className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white p-1.5 sm:px-2.5 sm:py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 whitespace-nowrap shrink-0"
+              onClick={() => setIsSettingsOpen(true)}
+              title="Practical & Random Marks Posting Settings"
+              className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full border border-indigo-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-indigo-900 hover:bg-indigo-50 shadow-2xs whitespace-nowrap shrink-0"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Settings className="h-3.5 w-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">Marks Settings</span>
             </button>
+          )}
+
+          {activeTab === 'register' && (
+            <>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={progress.isExtracting}
+                title="Upload Admit Card PDF"
+                className="inline-flex items-center gap-1 sm:gap-1.5 rounded-full bg-indigo-600 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 shadow-2xs disabled:opacity-50 whitespace-nowrap shrink-0"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Upload PDF</span>
+                <span className="sm:hidden">Upload</span>
+              </button>
+
+              {currentModuleRecords.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearCurrentModule}
+                  title={`Clear all ${activeModule === 'INTERMEDIATE' ? '12th Intermediate' : '10th Matric'} students`}
+                  className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white p-1.5 sm:px-2.5 sm:py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 whitespace-nowrap shrink-0"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </>
           )}
         </div>
       </header>
@@ -2129,38 +2087,21 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={progress.isExtracting}
-                  className="inline-flex items-center gap-1.5 rounded-full bg-indigo-600 px-3 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-white hover:bg-indigo-700 shadow-2xs disabled:opacity-50 whitespace-nowrap"
+                  onClick={() => setIsManualModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap"
                 >
-                  <Upload className="h-3.5 w-3.5" />
-                  <span>Upload PDF</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('marks')}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white px-3 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-indigo-900 hover:bg-indigo-50 whitespace-nowrap"
-                >
-                  <BookOpen className="h-3.5 w-3.5" />
-                  <span>{activeModule === 'INTERMEDIATE' ? '12th Panji' : '10th Panji'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSwitchTab('letterpad')}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-indigo-200 bg-white px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold text-indigo-900 hover:bg-indigo-50 whitespace-nowrap"
-                >
-                  <Printer className="h-3.5 w-3.5" />
-                  <span>Letter / Lifafa</span>
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add Student</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadAdminCompletePack}
                   disabled={currentModuleRecords.length === 0 || Boolean(zipPackStatus)}
                   title="Download all PDFs, Excels, Attendance Sheet, Letter Pad & Lifafa Slips in 1 ZIP folder"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-emerald-700 px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold text-white hover:bg-emerald-800 shadow-2xs disabled:opacity-50 whitespace-nowrap cursor-pointer"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 shadow-2xs disabled:opacity-50 whitespace-nowrap cursor-pointer"
                 >
                   {zipPackStatus ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2171,14 +2112,6 @@ export default function App() {
                     {zipPackStatus ||
                       `All ${activeModule === 'INTERMEDIATE' ? '12th' : '10th'} ZIP`}
                   </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsManualModalOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-white px-2.5 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Add Student</span>
                 </button>
               </div>
             </div>
