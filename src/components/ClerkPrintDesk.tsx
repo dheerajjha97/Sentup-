@@ -16,7 +16,14 @@ import {
   FolderArchive,
 } from 'lucide-react';
 import { AdmitCardRecord, ClerkAssignment, ExamType, FacultyType } from '../types/admitCard';
-import { User } from '../firebase';
+import {
+  AdminFeatureFlags,
+  DEFAULT_ADMIN_FEATURE_FLAGS,
+  SchoolFeaturePolicyRecord,
+  User,
+  isSuperAdminUserEmail,
+  normalizePolicySchoolCode,
+} from '../firebase';
 import { normalizeSchoolCode } from '../utils/teacherSubjectMatcher';
 import {
   exportAbsent10thExcel,
@@ -47,6 +54,8 @@ interface ClerkPrintDeskProps {
   isLoadingAssignments: boolean;
   isLoadingStudents: boolean;
   studentsError?: string;
+  globalFeatureFlags?: AdminFeatureFlags;
+  schoolFeaturePolicies?: Record<string, SchoolFeaturePolicyRecord>;
   onSignOut: () => Promise<void>;
 }
 
@@ -66,6 +75,8 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
   isLoadingAssignments,
   isLoadingStudents,
   studentsError,
+  globalFeatureFlags = DEFAULT_ADMIN_FEATURE_FLAGS,
+  schoolFeaturePolicies = {},
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<ClerkTab>('reports');
@@ -135,6 +146,36 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
     () => assignedSchools.find((s) => s.code === selectedSchoolCode) || assignedSchools[0] || null,
     [assignedSchools, selectedSchoolCode]
   );
+
+  // Resolve real-time Super Admin feature policy for the Clerk's active School Code
+  const activeFeatures: AdminFeatureFlags = useMemo(() => {
+    if (isSuperAdminUserEmail(user.email)) {
+      return { ...DEFAULT_ADMIN_FEATURE_FLAGS };
+    }
+    const code = activeSchool ? normalizePolicySchoolCode(activeSchool.code) : '';
+    const schoolPolicy = code ? schoolFeaturePolicies[code] : undefined;
+    if (schoolPolicy) {
+      return {
+        randomMarksGenerator: schoolPolicy.randomMarksGenerator,
+        excelDownload: schoolPolicy.excelDownload,
+        pdfDownload: schoolPolicy.pdfDownload,
+        completeZipDownload: schoolPolicy.completeZipDownload,
+        letterPadAndLifafa: schoolPolicy.letterPadAndLifafa,
+        attendanceSheet: schoolPolicy.attendanceSheet,
+        teacherClerkManagement: schoolPolicy.teacherClerkManagement,
+        bulkDeleteData: schoolPolicy.bulkDeleteData,
+      };
+    }
+    return globalFeatureFlags;
+  }, [user.email, activeSchool, schoolFeaturePolicies, globalFeatureFlags]);
+
+  useEffect(() => {
+    if (activeTab === 'attendance' && !activeFeatures.attendanceSheet) {
+      setActiveTab('reports');
+    } else if (activeTab === 'letterpad' && !activeFeatures.letterPadAndLifafa) {
+      setActiveTab('reports');
+    }
+  }, [activeTab, activeFeatures.attendanceSheet, activeFeatures.letterPadAndLifafa]);
 
   // Keep selectedClass valid for the currently selected school
   useEffect(() => {
@@ -369,30 +410,34 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                   <FileText className="h-3.5 w-3.5" />
                   <span>Reports &amp; Registers</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('attendance')}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-                    activeTab === 'attendance'
-                      ? 'bg-sky-600 text-white shadow-2xs'
-                      : 'text-slate-700 hover:text-slate-950'
-                  }`}
-                >
-                  <ClipboardCheck className="h-3.5 w-3.5" />
-                  <span>Attendance Sheet</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('letterpad')}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-                    activeTab === 'letterpad'
-                      ? 'bg-sky-600 text-white shadow-2xs'
-                      : 'text-slate-700 hover:text-slate-950'
-                  }`}
-                >
-                  <Printer className="h-3.5 w-3.5" />
-                  <span>Letter Pad &amp; Lifafa</span>
-                </button>
+                {activeFeatures.attendanceSheet && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('attendance')}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                      activeTab === 'attendance'
+                        ? 'bg-sky-600 text-white shadow-2xs'
+                        : 'text-slate-700 hover:text-slate-950'
+                    }`}
+                  >
+                    <ClipboardCheck className="h-3.5 w-3.5" />
+                    <span>Attendance Sheet</span>
+                  </button>
+                )}
+                {activeFeatures.letterPadAndLifafa && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('letterpad')}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+                      activeTab === 'letterpad'
+                        ? 'bg-sky-600 text-white shadow-2xs'
+                        : 'text-slate-700 hover:text-slate-950'
+                    }`}
+                  >
+                    <Printer className="h-3.5 w-3.5" />
+                    <span>Letter Pad &amp; Lifafa</span>
+                  </button>
+                )}
               </div>
 
               {/* Active School Label + Class Toggle */}
@@ -466,22 +511,24 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
 
                   <div className="flex flex-wrap items-center gap-2">
                     {/* 1-Click Complete Folder Pack (ZIP) for Clerk */}
-                    <button
-                      type="button"
-                      onClick={handleDownloadClerkCompletePack}
-                      disabled={classStudents.length === 0 || Boolean(zipPackStatus)}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-emerald-800 shadow-2xs whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
-                    >
-                      {zipPackStatus ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <FolderArchive className="h-3.5 w-3.5" />
-                      )}
-                      <span>
-                        {zipPackStatus ||
-                          `Download All ${isInter ? '12th' : '10th'} Pack (ZIP)`}
-                      </span>
-                    </button>
+                    {activeFeatures.completeZipDownload && (
+                      <button
+                        type="button"
+                        onClick={handleDownloadClerkCompletePack}
+                        disabled={classStudents.length === 0 || Boolean(zipPackStatus)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3.5 py-2 text-xs font-semibold text-white hover:bg-emerald-800 shadow-2xs whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-50"
+                      >
+                        {zipPackStatus ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <FolderArchive className="h-3.5 w-3.5" />
+                        )}
+                        <span>
+                          {zipPackStatus ||
+                            `Download All ${isInter ? '12th' : '10th'} Pack (ZIP)`}
+                        </span>
+                      </button>
+                    )}
 
                     {/* Faculty Scope Filter for 12th */}
                     {isInter && (
@@ -527,6 +574,16 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                       Admin dwara is School Code ka data upload aur sync hone par reports yahan print ke liye ready milengi.
                     </p>
                   </div>
+                ) : !activeFeatures.pdfDownload && !activeFeatures.excelDownload ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-5 text-center">
+                    <Lock className="mx-auto h-6 w-6 text-amber-600" />
+                    <p className="mt-2 text-xs font-bold text-amber-900">
+                      PDF &amp; Excel Downloads Restricted for School {activeSchool?.code}
+                    </p>
+                    <p className="mt-1 text-[11px] text-amber-800">
+                      Is School Code ke liye PDF aur Excel download abhi Super Admin dwara band kiya gaya hai.
+                    </p>
+                  </div>
                 ) : isInter ? (
                   /* 12th INTERMEDIATE PRINT CARDS */
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -541,36 +598,40 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportSentUp12thPdf(
-                              exportTargetRecords,
-                              `12th_Sent-Up_Panji${fileTag}${facultyTag}`,
-                              { annualYear: '2027', sentUpYear: '2026' }
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>Preview &amp; Print PDF</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportToExcel(exportTargetRecords, {
-                              mode: 'BSEB_12TH_SENTUP',
-                              customFormat: null,
-                              filenamePrefix: `12th_Sent-Up_Panji${fileTag}${facultyTag}`,
-                              annualYear: '2027',
-                              sentUpYear: '2026',
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5" />
-                          <span>Download Excel</span>
-                        </button>
+                        {activeFeatures.pdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportSentUp12thPdf(
+                                exportTargetRecords,
+                                `12th_Sent-Up_Panji${fileTag}${facultyTag}`,
+                                { annualYear: '2027', sentUpYear: '2026' }
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>Preview &amp; Print PDF</span>
+                          </button>
+                        )}
+                        {activeFeatures.excelDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportToExcel(exportTargetRecords, {
+                                mode: 'BSEB_12TH_SENTUP',
+                                customFormat: null,
+                                filenamePrefix: `12th_Sent-Up_Panji${fileTag}${facultyTag}`,
+                                annualYear: '2027',
+                                sentUpYear: '2026',
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5" />
+                            <span>Download Excel</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -585,34 +646,38 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportAbsent12thPdf(
-                              exportTargetRecords,
-                              `12th_Absent_List${fileTag}${facultyTag}`,
-                              { annualYear: '2027', sentUpYear: '2026' }
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>Absent PDF</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportAbsent12thExcel(exportTargetRecords, {
-                              annualYear: '2027',
-                              sentUpYear: '2026',
-                              filenamePrefix: `12th_Absent_List${fileTag}${facultyTag}`,
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5 text-teal-700" />
-                          <span>Absent Excel</span>
-                        </button>
+                        {activeFeatures.pdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportAbsent12thPdf(
+                                exportTargetRecords,
+                                `12th_Absent_List${fileTag}${facultyTag}`,
+                                { annualYear: '2027', sentUpYear: '2026' }
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>Absent PDF</span>
+                          </button>
+                        )}
+                        {activeFeatures.excelDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportAbsent12thExcel(exportTargetRecords, {
+                                annualYear: '2027',
+                                sentUpYear: '2026',
+                                filenamePrefix: `12th_Absent_List${fileTag}${facultyTag}`,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5 text-teal-700" />
+                            <span>Absent Excel</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -627,64 +692,70 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportVocational12thPdf(
-                              exportTargetRecords,
-                              `12th_Vocational_Panji${fileTag}${facultyTag}`,
-                              { annualYear: '2027', sentUpYear: '2026' }
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5 text-purple-700" />
-                          <span>Vocational PDF</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportVocational12thExcel(exportTargetRecords, {
-                              annualYear: '2027',
-                              sentUpYear: '2026',
-                              filenamePrefix: `12th_Vocational_Panji${fileTag}${facultyTag}`,
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-700" />
-                          <span>Vocational Excel</span>
-                        </button>
+                        {activeFeatures.pdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportVocational12thPdf(
+                                exportTargetRecords,
+                                `12th_Vocational_Panji${fileTag}${facultyTag}`,
+                                { annualYear: '2027', sentUpYear: '2026' }
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-purple-700" />
+                            <span>Vocational PDF</span>
+                          </button>
+                        )}
+                        {activeFeatures.excelDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportVocational12thExcel(exportTargetRecords, {
+                                annualYear: '2027',
+                                sentUpYear: '2026',
+                                filenamePrefix: `12th_Vocational_Panji${fileTag}${facultyTag}`,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-700" />
+                            <span>Vocational Excel</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
                     {/* 4. Admit Card Register PDF */}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 flex flex-col justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">
-                          12th Admit Card Master Register
+                    {activeFeatures.pdfDownload && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 flex flex-col justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-bold text-slate-900">
+                            12th Admit Card Master Register
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-slate-500">
+                            Complete student list with Registration No., BSEB ID &amp; Subjects (Science → Arts → Commerce).
+                          </p>
                         </div>
-                        <p className="mt-0.5 text-[11px] text-slate-500">
-                          Complete student list with Registration No., BSEB ID &amp; Subjects (Science → Arts → Commerce).
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportToPdfReport(
+                                exportTargetRecords,
+                                false,
+                                `12th_AdmitCard_Register${fileTag}${facultyTag}`
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
+                          >
+                            <Printer className="h-3.5 w-3.5 text-sky-700" />
+                            <span>Print Register PDF</span>
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportToPdfReport(
-                              exportTargetRecords,
-                              false,
-                              `12th_AdmitCard_Register${fileTag}${facultyTag}`
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
-                        >
-                          <Printer className="h-3.5 w-3.5 text-sky-700" />
-                          <span>Print Register PDF</span>
-                        </button>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 ) : (
                   /* 10th MATRIC PRINT CARDS */
@@ -700,36 +771,40 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportSentUp10thPdf(
-                              exportTargetRecords,
-                              `10th_Sent-Up_Panji${fileTag}`,
-                              { annualYear: '2027', sentUpYear: '2026' }
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>Preview &amp; Print PDF</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportToExcel(exportTargetRecords, {
-                              mode: 'BSEB_10TH_SENTUP',
-                              customFormat: null,
-                              filenamePrefix: `10th_Sent-Up_Panji${fileTag}`,
-                              annualYear: '2027',
-                              sentUpYear: '2026',
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5" />
-                          <span>Download Excel</span>
-                        </button>
+                        {activeFeatures.pdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportSentUp10thPdf(
+                                exportTargetRecords,
+                                `10th_Sent-Up_Panji${fileTag}`,
+                                { annualYear: '2027', sentUpYear: '2026' }
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-800 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>Preview &amp; Print PDF</span>
+                          </button>
+                        )}
+                        {activeFeatures.excelDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportToExcel(exportTargetRecords, {
+                                mode: 'BSEB_10TH_SENTUP',
+                                customFormat: null,
+                                filenamePrefix: `10th_Sent-Up_Panji${fileTag}`,
+                                annualYear: '2027',
+                                sentUpYear: '2026',
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5" />
+                            <span>Download Excel</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -744,34 +819,38 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportAbsent10thPdf(
-                              exportTargetRecords,
-                              `10th_Absent_List${fileTag}`,
-                              { annualYear: '2027', sentUpYear: '2026' }
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>Absent PDF</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportAbsent10thExcel(exportTargetRecords, {
-                              annualYear: '2027',
-                              sentUpYear: '2026',
-                              filenamePrefix: `10th_Absent_List${fileTag}`,
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5 text-teal-700" />
-                          <span>Absent Excel</span>
-                        </button>
+                        {activeFeatures.pdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportAbsent10thPdf(
+                                exportTargetRecords,
+                                `10th_Absent_List${fileTag}`,
+                                { annualYear: '2027', sentUpYear: '2026' }
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-800 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>Absent PDF</span>
+                          </button>
+                        )}
+                        {activeFeatures.excelDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportAbsent10thExcel(exportTargetRecords, {
+                                annualYear: '2027',
+                                sentUpYear: '2026',
+                                filenamePrefix: `10th_Absent_List${fileTag}`,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5 text-teal-700" />
+                            <span>Absent Excel</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -786,92 +865,102 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportVisuallyImpairedSentUp10thPdf(
-                              exportTargetRecords,
-                              `10th_VI_SentUp${fileTag}`,
-                              { annualYear: '2027', sentUpYear: '2026' }
-                            )
-                          }
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5 text-purple-700" />
-                          <span>VI Sent-Up PDF</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportVisuallyImpairedSentUp10thExcel(exportTargetRecords, {
-                              annualYear: '2027',
-                              sentUpYear: '2026',
-                              filenamePrefix: `10th_VI_SentUp${fileTag}`,
-                            })
-                          }
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-700" />
-                          <span>VI Excel</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportVisuallyImpairedAbsent10thPdf(
-                              exportTargetRecords,
-                              `10th_VI_Absent${fileTag}`,
-                              { annualYear: '2027', sentUpYear: '2026' }
-                            )
-                          }
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileText className="h-3.5 w-3.5 text-rose-700" />
-                          <span>VI Absent PDF</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportVisuallyImpairedAbsent10thExcel(exportTargetRecords, {
-                              annualYear: '2027',
-                              sentUpYear: '2026',
-                              filenamePrefix: `10th_VI_Absent${fileTag}`,
-                            })
-                          }
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
-                        >
-                          <FileSpreadsheet className="h-3.5 w-3.5 text-teal-700" />
-                          <span>VI Absent XLS</span>
-                        </button>
+                        {activeFeatures.pdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportVisuallyImpairedSentUp10thPdf(
+                                exportTargetRecords,
+                                `10th_VI_SentUp${fileTag}`,
+                                { annualYear: '2027', sentUpYear: '2026' }
+                              )
+                            }
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-purple-700" />
+                            <span>VI Sent-Up PDF</span>
+                          </button>
+                        )}
+                        {activeFeatures.excelDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportVisuallyImpairedSentUp10thExcel(exportTargetRecords, {
+                                annualYear: '2027',
+                                sentUpYear: '2026',
+                                filenamePrefix: `10th_VI_SentUp${fileTag}`,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5 text-indigo-700" />
+                            <span>VI Excel</span>
+                          </button>
+                        )}
+                        {activeFeatures.pdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportVisuallyImpairedAbsent10thPdf(
+                                exportTargetRecords,
+                                `10th_VI_Absent${fileTag}`,
+                                { annualYear: '2027', sentUpYear: '2026' }
+                              )
+                            }
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileText className="h-3.5 w-3.5 text-rose-700" />
+                            <span>VI Absent PDF</span>
+                          </button>
+                        )}
+                        {activeFeatures.excelDownload && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportVisuallyImpairedAbsent10thExcel(exportTargetRecords, {
+                                annualYear: '2027',
+                                sentUpYear: '2026',
+                                filenamePrefix: `10th_VI_Absent${fileTag}`,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5 text-teal-700" />
+                            <span>VI Absent XLS</span>
+                          </button>
+                        )}
                       </div>
                     </div>
 
                     {/* 4. Admit Card Register PDF */}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 flex flex-col justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">
-                          10th Admit Card Master Register
+                    {activeFeatures.pdfDownload && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-3.5 flex flex-col justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-bold text-slate-900">
+                            10th Admit Card Master Register
+                          </div>
+                          <p className="mt-0.5 text-[11px] text-slate-500">
+                            Printable master list with Roll Code, Reg. No., BSEB ID &amp; Subjects.
+                          </p>
                         </div>
-                        <p className="mt-0.5 text-[11px] text-slate-500">
-                          Printable master list with Roll Code, Reg. No., BSEB ID &amp; Subjects.
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              exportToPdfReport(
+                                exportTargetRecords,
+                                false,
+                                `10th_AdmitCard_Register${fileTag}`
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
+                          >
+                            <Printer className="h-3.5 w-3.5 text-sky-700" />
+                            <span>Print Register PDF</span>
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            exportToPdfReport(
-                              exportTargetRecords,
-                              false,
-                              `10th_AdmitCard_Register${fileTag}`
-                            )
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-100 whitespace-nowrap cursor-pointer"
-                        >
-                          <Printer className="h-3.5 w-3.5 text-sky-700" />
-                          <span>Print Register PDF</span>
-                        </button>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 )}
               </section>
@@ -965,7 +1054,7 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                 </section>
               )}
             </div>
-          ) : activeTab === 'letterpad' ? (
+          ) : activeTab === 'letterpad' && activeFeatures.letterPadAndLifafa ? (
             /* TAB 3: OFFICIAL 12th / 10th SCHOOL LETTER PAD PRINT */
             <IntermediateLetterPadView
               records={schoolAllStudents}
@@ -978,13 +1067,15 @@ export const ClerkPrintDesk: React.FC<ClerkPrintDeskProps> = ({
                   : ['INTERMEDIATE', 'MATRIC']
               }
             />
-          ) : (
+          ) : activeFeatures.attendanceSheet ? (
             /* TAB 2: ATTENDANCE SHEET (PRINT / PDF / EXCEL - NO UPLOAD BUTTON) */
             <AttendanceSheetView
               records={schoolAllStudents}
               activeModule={selectedClass === 'INTERMEDIATE (+2)' ? 'INTERMEDIATE' : 'MATRIC'}
+              allowExcelDownload={activeFeatures.excelDownload}
+              allowPdfDownload={activeFeatures.pdfDownload}
             />
-          )}
+          ) : null}
         </>
       )}
     </div>

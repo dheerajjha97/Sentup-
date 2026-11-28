@@ -244,6 +244,72 @@ service cloud.firestore {
         && data.lastLoginAt is timestamp;
     }
 
+    function isValidSchoolFeaturePolicy(data) {
+      return data.keys().hasAll([
+          'schoolCode', 'schoolName', 'note',
+          'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData',
+          'updatedByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'schoolCode', 'schoolName', 'note',
+          'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData',
+          'updatedByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.schoolCode is string
+        && data.schoolCode.size() >= 1
+        && data.schoolCode.size() <= 32
+        && data.schoolCode.matches('^[a-zA-Z0-9_-]+$')
+        && data.schoolName is string
+        && data.schoolName.size() <= 200
+        && data.note is string
+        && data.note.size() <= 200
+        && isValidFeatureFlagsFields(data)
+        && data.updatedByUid is string
+        && data.updatedByUid.size() >= 1
+        && data.updatedByUid.size() <= 128
+        && data.updatedByUid.matches('^[a-zA-Z0-9_-]+$')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSchoolRegistry(data) {
+      return data.keys().hasAll([
+          'schoolCode', 'schoolName', 'adminUid', 'adminEmail', 'adminName',
+          'studentCount', 'teacherCount', 'clerkCount', 'classes',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'schoolCode', 'schoolName', 'adminUid', 'adminEmail', 'adminName',
+          'studentCount', 'teacherCount', 'clerkCount', 'classes',
+          'createdAt', 'updatedAt'
+        ])
+        && data.schoolCode is string
+        && data.schoolCode.size() >= 1
+        && data.schoolCode.size() <= 32
+        && data.schoolCode.matches('^[a-zA-Z0-9_-]+$')
+        && data.schoolName is string
+        && data.schoolName.size() <= 200
+        && data.adminUid is string
+        && data.adminUid.size() >= 1
+        && data.adminUid.size() <= 128
+        && data.adminUid.matches('^[a-zA-Z0-9_-]+$')
+        && data.adminEmail is string
+        && data.adminEmail.size() >= 3
+        && data.adminEmail.size() <= 160
+        && data.adminName is string
+        && data.adminName.size() <= 120
+        && data.studentCount is number && data.studentCount >= 0 && data.studentCount <= 100000
+        && data.teacherCount is number && data.teacherCount >= 0 && data.teacherCount <= 1000
+        && data.clerkCount is number && data.clerkCount >= 0 && data.clerkCount <= 1000
+        && isValidStringList(data.classes, 0, 2)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     function isStudentAssignedTeacher(res) {
       return hasVerifiedEmail()
         && 'assignedTeacherEmails' in res
@@ -514,6 +580,83 @@ service cloud.firestore {
 
       allow delete: if isFeatureSuperAdmin()
         && isValidId(accountUid);
+    }
+
+    match /schoolFeaturePolicies/{schoolCodeId} {
+      // Zero PII: per-School-Code boolean feature toggles; single-doc get by known code for Admin/Clerk, list strictly Super Admin
+      allow get: if hasVerifiedEmail()
+        && isValidId(schoolCodeId);
+
+      // Pillar 8: Zero get()/exists() in allow list
+      allow list: if isFeatureSuperAdmin();
+
+      allow create: if isFeatureSuperAdmin()
+        && isValidId(schoolCodeId)
+        && isValidSchoolFeaturePolicy(request.resource.data)
+        && request.resource.data.schoolCode == schoolCodeId
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if isFeatureSuperAdmin()
+        && isValidId(schoolCodeId)
+        && isValidSchoolFeaturePolicy(request.resource.data)
+        && request.resource.data.schoolCode == resource.data.schoolCode
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'schoolName', 'note', 'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData', 'updatedByUid', 'updatedAt'
+        ]);
+
+      allow delete: if isFeatureSuperAdmin()
+        && isValidId(schoolCodeId);
+    }
+
+    match /schoolRegistry/{entryId} {
+      // Pillar 6: PII Isolation - only owning adminUid or Super Admin nehajha.gyanora@gmail.com
+      allow get: if hasVerifiedEmail()
+        && isValidId(entryId)
+        && (
+          resource == null
+          || resource.data.adminUid == request.auth.uid
+          || isFeatureSuperAdmin()
+        );
+
+      // Pillar 8: Zero get()/exists() in allow list
+      allow list: if hasVerifiedEmail()
+        && (
+          resource.data.adminUid == request.auth.uid
+          || isFeatureSuperAdmin()
+        );
+
+      allow create: if hasVerifiedEmail()
+        && isValidId(entryId)
+        && isValidSchoolRegistry(request.resource.data)
+        && request.resource.data.adminUid == request.auth.uid
+        && request.resource.data.adminEmail == callerEmail()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if hasVerifiedEmail()
+        && isValidId(entryId)
+        && isValidSchoolRegistry(request.resource.data)
+        && resource.data.adminUid == request.auth.uid
+        && request.resource.data.adminUid == resource.data.adminUid
+        && request.resource.data.schoolCode == resource.data.schoolCode
+        && request.resource.data.adminEmail == callerEmail()
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'schoolName', 'adminEmail', 'adminName', 'studentCount',
+          'teacherCount', 'clerkCount', 'classes', 'updatedAt'
+        ]);
+
+      allow delete: if hasVerifiedEmail()
+        && isValidId(entryId)
+        && (resource.data.adminUid == request.auth.uid || isFeatureSuperAdmin());
     }
   }
 }

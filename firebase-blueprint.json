@@ -310,6 +310,74 @@
         "createdAt",
         "lastLoginAt"
       ]
+    },
+    "SchoolFeaturePolicy": {
+      "title": "SchoolFeaturePolicy",
+      "description": "Per-School-Code feature enable/disable policy controlled exclusively by Super Admin (/supadm) and enforced across Admin and Clerk portals",
+      "type": "object",
+      "properties": {
+        "schoolCode": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolName": { "type": "string", "maxLength": 200 },
+        "note": { "type": "string", "maxLength": 200 },
+        "randomMarksGenerator": { "type": "boolean" },
+        "excelDownload": { "type": "boolean" },
+        "pdfDownload": { "type": "boolean" },
+        "completeZipDownload": { "type": "boolean" },
+        "letterPadAndLifafa": { "type": "boolean" },
+        "attendanceSheet": { "type": "boolean" },
+        "teacherClerkManagement": { "type": "boolean" },
+        "bulkDeleteData": { "type": "boolean" },
+        "updatedByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "schoolCode",
+        "schoolName",
+        "note",
+        "randomMarksGenerator",
+        "excelDownload",
+        "pdfDownload",
+        "completeZipDownload",
+        "letterPadAndLifafa",
+        "attendanceSheet",
+        "teacherClerkManagement",
+        "bulkDeleteData",
+        "updatedByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SchoolRegistryEntry": {
+      "title": "SchoolRegistryEntry",
+      "description": "Directory of School Codes registered by signed-in Admins so Super Admin can view all schools, admins, teachers, and clerks and manage features per School Code",
+      "type": "object",
+      "properties": {
+        "schoolCode": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "schoolName": { "type": "string", "maxLength": 200 },
+        "adminUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "adminEmail": { "type": "string", "maxLength": 160 },
+        "adminName": { "type": "string", "maxLength": 120 },
+        "studentCount": { "type": "number" },
+        "teacherCount": { "type": "number" },
+        "clerkCount": { "type": "number" },
+        "classes": { "type": "array", "description": "Bounded list (0..2) of ExamType values active in this school" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "schoolCode",
+        "schoolName",
+        "adminUid",
+        "adminEmail",
+        "adminName",
+        "studentCount",
+        "teacherCount",
+        "clerkCount",
+        "classes",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -336,6 +404,14 @@
     "/adminAccounts/{accountUid}": {
       "schema": { "$ref": "#/entities/AdminAccount" },
       "description": "Stores admin portal login directory entries (PII isolated to self and Super Admin nehajha.gyanora@gmail.com)."
+    },
+    "/schoolFeaturePolicies/{schoolCodeId}": {
+      "schema": { "$ref": "#/entities/SchoolFeaturePolicy" },
+      "description": "Stores non-PII per-School-Code feature toggle policies. Single-doc get allowed for verified signed-in users; list and all writes restricted strictly to Super Admin nehajha.gyanora@gmail.com."
+    },
+    "/schoolRegistry/{entryId}": {
+      "schema": { "$ref": "#/entities/SchoolRegistryEntry" },
+      "description": "Stores per-Admin School Code directory entries (PII isolated to owning adminUid and Super Admin nehajha.gyanora@gmail.com)."
     }
   }
 }

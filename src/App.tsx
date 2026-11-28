@@ -93,10 +93,14 @@ import {
   AdminFeatureFlags,
   AdminFeatureOverrideRecord,
   DEFAULT_ADMIN_FEATURE_FLAGS,
+  SchoolFeaturePolicyRecord,
   isSuperAdminUserEmail,
+  normalizePolicySchoolCode,
   registerAdminAccountLogin,
   subscribeToGlobalFeatureFlags,
   subscribeToMyAdminFeatureOverride,
+  subscribeToSchoolFeaturePoliciesByCodes,
+  upsertAdminSchoolRegistryEntries,
   User,
 } from './firebase';
 import { StudentDetailModal } from './components/StudentDetailModal';
@@ -178,6 +182,10 @@ export default function App() {
   });
   const [myAdminFeatureOverride, setMyAdminFeatureOverride] =
     useState<AdminFeatureOverrideRecord | null>(null);
+  const [schoolFeaturePolicies, setSchoolFeaturePolicies] = useState<
+    Record<string, SchoolFeaturePolicyRecord>
+  >({});
+  const lastSchoolRegistryFingerprintRef = useRef<string>('');
   const [records, setRecordsState] = useState<AdmitCardRecord[]>([]);
   const [activeModule, setActiveModule] = useState<SchoolModule>('INTERMEDIATE');
   const [activeTab, setActiveTab] = useState<
@@ -544,9 +552,14 @@ export default function App() {
         }
       );
 
+      const unsubscribeGlobalFlagsForClerk = subscribeToGlobalFeatureFlags((flags) => {
+        setGlobalFeatureFlags(flags);
+      });
+
       return () => {
         unsubscribeMyClerks();
         unsubscribeClerkStudents();
+        unsubscribeGlobalFlagsForClerk();
       };
     }
 
@@ -592,25 +605,214 @@ export default function App() {
     };
   }, [isSuperAdminRoute, firebaseUser, activePortalRole]);
 
-  // Effective live feature flags for the logged-in Admin (Super Admin account is never restricted)
+  // Collect all unique School Codes relevant to the current Admin or Clerk for live Super Admin policy watching
+  const watchedSchoolCodesKey = useMemo(() => {
+    if (isSuperAdminRoute || !firebaseUser) return '';
+    const codes = new Set<string>();
+
+    if (activePortalRole === 'ADMIN') {
+      records.forEach((r) => {
+        const c = normalizePolicySchoolCode(r.schoolCode || r.rollCode || '');
+        if (c) codes.add(c);
+      });
+      ownerAssignments.forEach((t) => {
+        const c = normalizePolicySchoolCode(t.schoolCode);
+        if (c) codes.add(c);
+      });
+      ownerClerkAssignments.forEach((cl) => {
+        const c = normalizePolicySchoolCode(cl.schoolCode);
+        if (c) codes.add(c);
+      });
+      if (filters.schoolCode && filters.schoolCode !== 'ALL') {
+        const c = normalizePolicySchoolCode(filters.schoolCode);
+        if (c) codes.add(c);
+      }
+    } else if (activePortalRole === 'CLERK') {
+      myClerkAssignments.forEach((cl) => {
+        const c = normalizePolicySchoolCode(cl.schoolCode);
+        if (c) codes.add(c);
+      });
+      clerkAssignedStudents.forEach((r) => {
+        const c = normalizePolicySchoolCode(r.schoolCode || r.rollCode || '');
+        if (c) codes.add(c);
+      });
+    }
+
+    return Array.from(codes).sort().join(',');
+  }, [
+    isSuperAdminRoute,
+    firebaseUser,
+    activePortalRole,
+    records,
+    ownerAssignments,
+    ownerClerkAssignments,
+    filters.schoolCode,
+    myClerkAssignments,
+    clerkAssignedStudents,
+  ]);
+
+  useEffect(() => {
+    if (isSuperAdminRoute || !firebaseUser || !watchedSchoolCodesKey) {
+      setSchoolFeaturePolicies({});
+      return;
+    }
+    const codes = watchedSchoolCodesKey.split(',').filter(Boolean);
+    const unsub = subscribeToSchoolFeaturePoliciesByCodes(codes, (policiesMap) => {
+      setSchoolFeaturePolicies(policiesMap);
+    });
+    return () => unsub();
+  }, [isSuperAdminRoute, firebaseUser, watchedSchoolCodesKey]);
+
+  // Admin-only: sync active School Codes & counts into /schoolRegistry so /supadm sees all schools automatically
+  useEffect(() => {
+    if (isSuperAdminRoute || activePortalRole !== 'ADMIN' || !firebaseUser) return;
+    if (records.length === 0 && ownerAssignments.length === 0 && ownerClerkAssignments.length === 0) {
+      return;
+    }
+
+    const codeSummaryMap = new Map<string, string>();
+    const schoolBuckets = new Map<
+      string,
+      { students: number; teachers: Set<string>; clerks: Set<string>; classes: Set<string>; name: string }
+    >();
+
+    const getBucket = (rawCode: string, rawName?: string) => {
+      const code = normalizePolicySchoolCode(rawCode);
+      if (!code) return null;
+      let b = schoolBuckets.get(code);
+      if (!b) {
+        b = { students: 0, teachers: new Set(), clerks: new Set(), classes: new Set(), name: rawName || '' };
+        schoolBuckets.set(code, b);
+      } else if (!b.name && rawName) {
+        b.name = rawName;
+      }
+      return b;
+    };
+
+    records.forEach((r) => {
+      const b = getBucket(r.schoolCode, r.schoolName);
+      if (!b) return;
+      b.students += 1;
+      b.classes.add(r.examType);
+    });
+    ownerAssignments.forEach((t) => {
+      const b = getBucket(t.schoolCode, t.schoolName);
+      if (!b) return;
+      if (t.active && t.teacherEmail) b.teachers.add(t.teacherEmail.toLowerCase());
+      t.assignedClasses.forEach((c) => b.classes.add(c));
+    });
+    ownerClerkAssignments.forEach((cl) => {
+      const b = getBucket(cl.schoolCode, cl.schoolName);
+      if (!b) return;
+      if (cl.active && cl.clerkEmail) b.clerks.add(cl.clerkEmail.toLowerCase());
+      cl.assignedClasses.forEach((c) => b.classes.add(c));
+    });
+
+    schoolBuckets.forEach((b, code) => {
+      codeSummaryMap.set(
+        code,
+        `${code}:${b.students}:${b.teachers.size}:${b.clerks.size}:${Array.from(b.classes).sort().join('/')}:${b.name}`
+      );
+    });
+
+    const fingerprint = `${firebaseUser.uid}|${Array.from(codeSummaryMap.values()).sort().join('|')}`;
+    if (fingerprint === lastSchoolRegistryFingerprintRef.current) return;
+    lastSchoolRegistryFingerprintRef.current = fingerprint;
+
+    upsertAdminSchoolRegistryEntries(
+      firebaseUser,
+      records,
+      ownerAssignments,
+      ownerClerkAssignments
+    ).catch((err) => {
+      console.warn('School registry sync warning:', err);
+    });
+  }, [isSuperAdminRoute, activePortalRole, firebaseUser, records, ownerAssignments, ownerClerkAssignments]);
+
+  // Effective live feature flags for the logged-in Admin
+  // Priority: 1) Active School Code Policy -> 2) Admin Gmail Override -> 3) Global Default
+  // Super Admin account (nehajha.gyanora@gmail.com) is never restricted.
   const effectiveAdminFeatures: AdminFeatureFlags = useMemo(() => {
     if (firebaseUser && isSuperAdminUserEmail(firebaseUser.email)) {
       return { ...DEFAULT_ADMIN_FEATURE_FLAGS };
     }
-    if (myAdminFeatureOverride) {
-      return {
-        randomMarksGenerator: myAdminFeatureOverride.randomMarksGenerator,
-        excelDownload: myAdminFeatureOverride.excelDownload,
-        pdfDownload: myAdminFeatureOverride.pdfDownload,
-        completeZipDownload: myAdminFeatureOverride.completeZipDownload,
-        letterPadAndLifafa: myAdminFeatureOverride.letterPadAndLifafa,
-        attendanceSheet: myAdminFeatureOverride.attendanceSheet,
-        teacherClerkManagement: myAdminFeatureOverride.teacherClerkManagement,
-        bulkDeleteData: myAdminFeatureOverride.bulkDeleteData,
-      };
+
+    const baseFlags: AdminFeatureFlags = myAdminFeatureOverride
+      ? {
+          randomMarksGenerator: myAdminFeatureOverride.randomMarksGenerator,
+          excelDownload: myAdminFeatureOverride.excelDownload,
+          pdfDownload: myAdminFeatureOverride.pdfDownload,
+          completeZipDownload: myAdminFeatureOverride.completeZipDownload,
+          letterPadAndLifafa: myAdminFeatureOverride.letterPadAndLifafa,
+          attendanceSheet: myAdminFeatureOverride.attendanceSheet,
+          teacherClerkManagement: myAdminFeatureOverride.teacherClerkManagement,
+          bulkDeleteData: myAdminFeatureOverride.bulkDeleteData,
+        }
+      : globalFeatureFlags;
+
+    // Determine active School Code(s) in Admin's current workspace
+    const activeCodesSet = new Set<string>();
+    if (filters.schoolCode && filters.schoolCode !== 'ALL') {
+      const c = normalizePolicySchoolCode(filters.schoolCode);
+      if (c) activeCodesSet.add(c);
+    } else {
+      const targetExamType: ExamType =
+        activeModule === 'INTERMEDIATE' ? 'INTERMEDIATE (+2)' : 'MATRIC (10th)';
+      records.forEach((r) => {
+        if (r.examType !== targetExamType) return;
+        const c = normalizePolicySchoolCode(r.schoolCode || r.rollCode || '');
+        if (c) activeCodesSet.add(c);
+      });
+      if (activeCodesSet.size === 0) {
+        records.forEach((r) => {
+          const c = normalizePolicySchoolCode(r.schoolCode || r.rollCode || '');
+          if (c) activeCodesSet.add(c);
+        });
+        ownerAssignments.forEach((t) => {
+          const c = normalizePolicySchoolCode(t.schoolCode);
+          if (c) activeCodesSet.add(c);
+        });
+        ownerClerkAssignments.forEach((cl) => {
+          const c = normalizePolicySchoolCode(cl.schoolCode);
+          if (c) activeCodesSet.add(c);
+        });
+      }
     }
-    return globalFeatureFlags;
-  }, [firebaseUser, myAdminFeatureOverride, globalFeatureFlags]);
+
+    const activeCodes = Array.from(activeCodesSet);
+    const hasAnySchoolPolicy = activeCodes.some((c) => Boolean(schoolFeaturePolicies[c]));
+    if (!hasAnySchoolPolicy) {
+      return baseFlags;
+    }
+
+    // Resolve each flag strictly across all active school codes in scope (prevents bypassing a restricted code via ALL view)
+    const resolveFlag = (key: keyof AdminFeatureFlags): boolean =>
+      activeCodes.every((code) => {
+        const pol = schoolFeaturePolicies[code];
+        return pol ? pol[key] : baseFlags[key];
+      });
+
+    return {
+      randomMarksGenerator: resolveFlag('randomMarksGenerator'),
+      excelDownload: resolveFlag('excelDownload'),
+      pdfDownload: resolveFlag('pdfDownload'),
+      completeZipDownload: resolveFlag('completeZipDownload'),
+      letterPadAndLifafa: resolveFlag('letterPadAndLifafa'),
+      attendanceSheet: resolveFlag('attendanceSheet'),
+      teacherClerkManagement: resolveFlag('teacherClerkManagement'),
+      bulkDeleteData: resolveFlag('bulkDeleteData'),
+    };
+  }, [
+    firebaseUser,
+    myAdminFeatureOverride,
+    globalFeatureFlags,
+    schoolFeaturePolicies,
+    filters.schoolCode,
+    activeModule,
+    records,
+    ownerAssignments,
+    ownerClerkAssignments,
+  ]);
 
   // Redirect away from any tab if Super Admin disables it in real time
   useEffect(() => {
@@ -1341,6 +1543,8 @@ export default function App() {
                 isLoadingAssignments={clerkAssignmentsLoading}
                 isLoadingStudents={clerkStudentsLoading}
                 studentsError={clerkStudentsError}
+                globalFeatureFlags={globalFeatureFlags}
+                schoolFeaturePolicies={schoolFeaturePolicies}
                 onSignOut={handleFirebaseSignOut}
               />
             </main>

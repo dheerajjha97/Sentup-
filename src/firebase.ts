@@ -1358,6 +1358,406 @@ export function subscribeToAllAdminAccounts(
   );
 }
 
+export interface SchoolFeaturePolicyRecord extends AdminFeatureFlags {
+  id: string;
+  schoolCode: string;
+  schoolName: string;
+  note: string;
+  updatedAt?: string;
+}
+
+export interface SchoolRegistryEntry {
+  id: string;
+  schoolCode: string;
+  schoolName: string;
+  adminUid: string;
+  adminEmail: string;
+  adminName: string;
+  studentCount: number;
+  teacherCount: number;
+  clerkCount: number;
+  classes: ExamType[];
+  updatedAt?: string;
+}
+
+export function normalizePolicySchoolCode(rawCode: string): string {
+  const normalized = normalizeSchoolCode(rawCode || '');
+  const clean = (normalized || (rawCode || '').trim())
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, '')
+    .slice(0, 32);
+  return clean;
+}
+
+export async function upsertAdminSchoolRegistryEntries(
+  user: User,
+  records: AdmitCardRecord[],
+  teacherAssignments: TeacherAssignment[],
+  clerkAssignments: ClerkAssignment[]
+): Promise<void> {
+  const cleanEmail = clampStr(user.email || '', 160).toLowerCase();
+  if (!user.uid || !cleanEmail) return;
+
+  const adminName = clampStr(user.displayName || cleanEmail.split('@')[0] || 'School Admin', 120);
+
+  const byCode = new Map<
+    string,
+    {
+      schoolName: string;
+      studentCount: number;
+      teacherEmails: Set<string>;
+      clerkEmails: Set<string>;
+      classes: Set<ExamType>;
+    }
+  >();
+
+  const ensureBucket = (rawCode: string, rawName?: string) => {
+    const code = normalizePolicySchoolCode(rawCode);
+    if (!code) return null;
+    let bucket = byCode.get(code);
+    if (!bucket) {
+      bucket = {
+        schoolName: clampStr(rawName || '', 200),
+        studentCount: 0,
+        teacherEmails: new Set<string>(),
+        clerkEmails: new Set<string>(),
+        classes: new Set<ExamType>(),
+      };
+      byCode.set(code, bucket);
+    } else if (!bucket.schoolName && rawName) {
+      bucket.schoolName = clampStr(rawName, 200);
+    }
+    return bucket;
+  };
+
+  for (const r of records) {
+    const bucket = ensureBucket(r.schoolCode, r.schoolName);
+    if (!bucket) continue;
+    bucket.studentCount += 1;
+    if (r.examType === 'MATRIC (10th)' || r.examType === 'INTERMEDIATE (+2)') {
+      bucket.classes.add(r.examType);
+    }
+  }
+
+  for (const t of teacherAssignments) {
+    const bucket = ensureBucket(t.schoolCode, t.schoolName);
+    if (!bucket) continue;
+    if (t.active && t.teacherEmail) {
+      bucket.teacherEmails.add(t.teacherEmail.trim().toLowerCase());
+    }
+    for (const c of t.assignedClasses || []) {
+      if (c === 'MATRIC (10th)' || c === 'INTERMEDIATE (+2)') {
+        bucket.classes.add(c);
+      }
+    }
+  }
+
+  for (const c of clerkAssignments) {
+    const bucket = ensureBucket(c.schoolCode, c.schoolName);
+    if (!bucket) continue;
+    if (c.active && c.clerkEmail) {
+      bucket.clerkEmails.add(c.clerkEmail.trim().toLowerCase());
+    }
+    for (const cls of c.assignedClasses || []) {
+      if (cls === 'MATRIC (10th)' || cls === 'INTERMEDIATE (+2)') {
+        bucket.classes.add(cls);
+      }
+    }
+  }
+
+  for (const [code, bucket] of byCode.entries()) {
+    const docId = sanitizeDocId(`${user.uid}_${code}`);
+    const docRef = doc(db, 'schoolRegistry', docId);
+    const classesList = Array.from(bucket.classes).slice(0, 2);
+
+    let exists = false;
+    try {
+      const snap = await getDoc(docRef);
+      exists = snap.exists();
+    } catch {
+      exists = false;
+    }
+
+    const mutableFields = {
+      schoolName: clampStr(bucket.schoolName, 200),
+      adminEmail: cleanEmail,
+      adminName,
+      studentCount: Math.max(0, Math.min(100000, bucket.studentCount)),
+      teacherCount: Math.max(0, Math.min(1000, bucket.teacherEmails.size)),
+      clerkCount: Math.max(0, Math.min(1000, bucket.clerkEmails.size)),
+      classes: classesList,
+      updatedAt: serverTimestamp(),
+    };
+
+    try {
+      if (exists) {
+        await updateDoc(docRef, mutableFields);
+      } else {
+        await setDoc(docRef, {
+          schoolCode: code,
+          adminUid: clampStr(user.uid, 128),
+          ...mutableFields,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      console.warn(`School registry sync skipped for ${code}:`, error);
+    }
+  }
+}
+
+export function subscribeToAllSchoolRegistryEntries(
+  onData: (entries: SchoolRegistryEntry[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  return onSnapshot(
+    collection(db, 'schoolRegistry'),
+    (snapshot) => {
+      const list: SchoolRegistryEntry[] = snapshot.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        const rawClasses = Array.isArray(data.classes) ? data.classes : [];
+        const validClasses: ExamType[] = rawClasses
+          .map((c) => String(c))
+          .filter((c): c is ExamType => c === 'MATRIC (10th)' || c === 'INTERMEDIATE (+2)');
+
+        return {
+          id: d.id,
+          schoolCode: normalizePolicySchoolCode(String(data.schoolCode || '')),
+          schoolName: String(data.schoolName || ''),
+          adminUid: String(data.adminUid || ''),
+          adminEmail: String(data.adminEmail || '').toLowerCase(),
+          adminName: String(data.adminName || ''),
+          studentCount: Number(data.studentCount) || 0,
+          teacherCount: Number(data.teacherCount) || 0,
+          clerkCount: Number(data.clerkCount) || 0,
+          classes: validClasses,
+          updatedAt: formatFirestoreTimestamp(data.updatedAt),
+        };
+      });
+      list.sort((a, b) => a.schoolCode.localeCompare(b.schoolCode));
+      onData(list);
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.LIST, 'schoolRegistry');
+      }
+    }
+  );
+}
+
+export function subscribeToAllTeacherAssignmentsForSuperAdmin(
+  onData: (assignments: TeacherAssignment[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  return onSnapshot(
+    collection(db, 'teacherAssignments'),
+    (snapshot) => {
+      const list = snapshot.docs.map((d) =>
+        mapDocToTeacherAssignment(d.id, d.data() as Record<string, unknown>)
+      );
+      list.sort(
+        (a, b) => a.schoolCode.localeCompare(b.schoolCode) || a.teacherEmail.localeCompare(b.teacherEmail)
+      );
+      onData(list);
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.LIST, 'teacherAssignments');
+      }
+    }
+  );
+}
+
+export function subscribeToAllClerkAssignmentsForSuperAdmin(
+  onData: (assignments: ClerkAssignment[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  return onSnapshot(
+    collection(db, 'clerkAssignments'),
+    (snapshot) => {
+      const list = snapshot.docs.map((d) =>
+        mapDocToClerkAssignment(d.id, d.data() as Record<string, unknown>)
+      );
+      list.sort(
+        (a, b) => a.schoolCode.localeCompare(b.schoolCode) || a.clerkEmail.localeCompare(b.clerkEmail)
+      );
+      onData(list);
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.LIST, 'clerkAssignments');
+      }
+    }
+  );
+}
+
+export function subscribeToAllSchoolFeaturePolicies(
+  onData: (policies: SchoolFeaturePolicyRecord[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  return onSnapshot(
+    collection(db, 'schoolFeaturePolicies'),
+    (snapshot) => {
+      const list: SchoolFeaturePolicyRecord[] = snapshot.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        return {
+          id: d.id,
+          schoolCode: normalizePolicySchoolCode(String(data.schoolCode || d.id)),
+          schoolName: String(data.schoolName || ''),
+          note: String(data.note || ''),
+          ...parseFeatureFlagsData(data),
+          updatedAt: formatFirestoreTimestamp(data.updatedAt),
+        };
+      });
+      list.sort((a, b) => a.schoolCode.localeCompare(b.schoolCode));
+      onData(list);
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.LIST, 'schoolFeaturePolicies');
+      }
+    }
+  );
+}
+
+export async function saveSchoolFeaturePolicy(
+  rawSchoolCode: string,
+  flags: AdminFeatureFlags,
+  schoolName = '',
+  note = ''
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !isSuperAdminUserEmail(currentUser.email)) {
+    throw new Error('Unauthorized: Only Super Admin can manage School Code feature policies.');
+  }
+
+  const code = normalizePolicySchoolCode(rawSchoolCode);
+  if (!code) {
+    throw new Error('Valid School Code enter karein (e.g. 51803 ya 31337).');
+  }
+
+  const path = `schoolFeaturePolicies/${code}`;
+  const docRef = doc(db, 'schoolFeaturePolicies', code);
+
+  const mutableFields = {
+    schoolName: clampStr(schoolName, 200),
+    note: clampStr(note, 200),
+    randomMarksGenerator: Boolean(flags.randomMarksGenerator),
+    excelDownload: Boolean(flags.excelDownload),
+    pdfDownload: Boolean(flags.pdfDownload),
+    completeZipDownload: Boolean(flags.completeZipDownload),
+    letterPadAndLifafa: Boolean(flags.letterPadAndLifafa),
+    attendanceSheet: Boolean(flags.attendanceSheet),
+    teacherClerkManagement: Boolean(flags.teacherClerkManagement),
+    bulkDeleteData: Boolean(flags.bulkDeleteData),
+    updatedByUid: clampStr(currentUser.uid, 128),
+    updatedAt: serverTimestamp(),
+  };
+
+  let exists = false;
+  try {
+    const snap = await getDoc(docRef);
+    exists = snap.exists();
+  } catch {
+    exists = false;
+  }
+
+  if (exists) {
+    try {
+      await updateDoc(docRef, mutableFields);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  } else {
+    try {
+      await setDoc(docRef, {
+        schoolCode: code,
+        ...mutableFields,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+}
+
+export async function deleteSchoolFeaturePolicy(rawSchoolCode: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !isSuperAdminUserEmail(currentUser.email)) {
+    throw new Error('Unauthorized: Only Super Admin can reset School Code feature policies.');
+  }
+
+  const code = normalizePolicySchoolCode(rawSchoolCode);
+  if (!code) return;
+
+  const path = `schoolFeaturePolicies/${code}`;
+  try {
+    await deleteDoc(doc(db, 'schoolFeaturePolicies', code));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Admin & Clerk: Real-time single-doc listeners for each active School Code (no collection list needed).
+ */
+export function subscribeToSchoolFeaturePoliciesByCodes(
+  schoolCodes: string[],
+  onData: (policiesByCode: Record<string, SchoolFeaturePolicyRecord>) => void
+): () => void {
+  const uniqueCodes = Array.from(
+    new Set(schoolCodes.map((c) => normalizePolicySchoolCode(c)).filter(Boolean))
+  );
+
+  if (uniqueCodes.length === 0) {
+    onData({});
+    return () => {};
+  }
+
+  const state: Record<string, SchoolFeaturePolicyRecord> = {};
+  const emit = () => onData({ ...state });
+
+  const unsubscribers = uniqueCodes.map((code) => {
+    const docRef = doc(db, 'schoolFeaturePolicies', code);
+    return onSnapshot(
+      docRef,
+      (snap) => {
+        if (snap.exists()) {
+          const data = snap.data() as Record<string, unknown>;
+          state[code] = {
+            id: snap.id,
+            schoolCode: code,
+            schoolName: String(data.schoolName || ''),
+            note: String(data.note || ''),
+            ...parseFeatureFlagsData(data),
+            updatedAt: formatFirestoreTimestamp(data.updatedAt),
+          };
+        } else {
+          delete state[code];
+        }
+        emit();
+      },
+      (error) => {
+        if (auth.currentUser) {
+          console.warn(`School feature policy watch failed for ${code}:`, error);
+        }
+      }
+    );
+  });
+
+  return () => {
+    unsubscribers.forEach((unsub) => unsub());
+  };
+}
+
 export async function signInWithGooglePopup(): Promise<User> {
   const result = await signInWithPopup(auth, googleProvider);
   return result.user;
@@ -1369,5 +1769,6 @@ export async function signOutFromFirebase(): Promise<void> {
 
 export { onAuthStateChanged };
 export type { User };
+
 
 
