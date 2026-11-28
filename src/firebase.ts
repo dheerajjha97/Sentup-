@@ -1036,7 +1036,9 @@ export interface AdminAccountRecord {
   uid: string;
   email: string;
   displayName: string;
+  createdAt?: string;
   lastLoginAt?: string;
+  lastLoginMs?: number;
 }
 
 export function emailToOverrideDocId(rawEmail: string): string {
@@ -1334,19 +1336,20 @@ export function subscribeToAllAdminAccounts(
   return onSnapshot(
     collection(db, 'adminAccounts'),
     (snapshot) => {
-      const list = snapshot.docs.map((d) => {
+      const list: AdminAccountRecord[] = snapshot.docs.map((d) => {
         const data = d.data() as Record<string, unknown>;
         const rawTs = data.lastLoginAt instanceof Timestamp ? data.lastLoginAt.toMillis() : 0;
         return {
           uid: String(data.uid || d.id),
           email: String(data.email || '').toLowerCase(),
           displayName: String(data.displayName || ''),
+          createdAt: formatFirestoreTimestamp(data.createdAt),
           lastLoginAt: formatFirestoreTimestamp(data.lastLoginAt),
-          _sortMs: rawTs,
+          lastLoginMs: rawTs,
         };
       });
-      list.sort((a, b) => b._sortMs - a._sortMs);
-      onData(list.map(({ _sortMs: _omit, ...rest }) => rest));
+      list.sort((a, b) => (b.lastLoginMs || 0) - (a.lastLoginMs || 0));
+      onData(list);
     },
     (error) => {
       const msg = error instanceof Error ? error.message : String(error);
@@ -1356,6 +1359,42 @@ export function subscribeToAllAdminAccounts(
       }
     }
   );
+}
+
+export async function deleteAdminAccountRecord(accountUid: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !isSuperAdminUserEmail(currentUser.email)) {
+    throw new Error('Unauthorized: Only Super Admin can remove admin login records.');
+  }
+  const cleanId = sanitizeDocId(accountUid);
+  const path = `adminAccounts/${cleanId}`;
+  try {
+    await deleteDoc(doc(db, 'adminAccounts', cleanId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function setStaffAssignmentActiveAsSuperAdmin(
+  role: 'TEACHER' | 'CLERK',
+  assignmentId: string,
+  active: boolean
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !isSuperAdminUserEmail(currentUser.email)) {
+    throw new Error('Unauthorized: Only Super Admin can update staff assignment status.');
+  }
+  const colName = role === 'TEACHER' ? 'teacherAssignments' : 'clerkAssignments';
+  const cleanId = sanitizeDocId(assignmentId);
+  const path = `${colName}/${cleanId}`;
+  try {
+    await updateDoc(doc(db, colName, cleanId), {
+      active: Boolean(active),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
 }
 
 export interface SchoolFeaturePolicyRecord extends AdminFeatureFlags {
