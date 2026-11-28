@@ -90,6 +90,13 @@ import {
   subscribeToOwnerClerkAssignments,
   subscribeToMyClerkAssignments,
   subscribeToClerkAssignedStudents,
+  AdminFeatureFlags,
+  AdminFeatureOverrideRecord,
+  DEFAULT_ADMIN_FEATURE_FLAGS,
+  isSuperAdminUserEmail,
+  registerAdminAccountLogin,
+  subscribeToGlobalFeatureFlags,
+  subscribeToMyAdminFeatureOverride,
   User,
 } from './firebase';
 import { StudentDetailModal } from './components/StudentDetailModal';
@@ -104,6 +111,7 @@ import { TeacherMarksPortal } from './components/TeacherMarksPortal';
 import { ClerkPrintDesk } from './components/ClerkPrintDesk';
 import { IntermediateLetterPadView } from './components/IntermediateLetterPadView';
 import { LoginPage, PortalRole } from './components/LoginPage';
+import { SuperAdminPortal } from './components/SuperAdminPortal';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PdfPreviewModal } from './components/PdfPreviewModal';
@@ -154,7 +162,22 @@ const clearSavedPortalRole = (uid: string) => {
   }
 };
 
+const checkIsSuperAdminRoute = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const cleanPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+  const cleanHash = window.location.hash.replace(/^#\/?/, '').replace(/\/+$/, '').toLowerCase();
+  return cleanPath === '/supadm' || cleanHash === 'supadm';
+};
+
 export default function App() {
+  const [isSuperAdminRoute, setIsSuperAdminRoute] = useState<boolean>(() =>
+    checkIsSuperAdminRoute()
+  );
+  const [globalFeatureFlags, setGlobalFeatureFlags] = useState<AdminFeatureFlags>({
+    ...DEFAULT_ADMIN_FEATURE_FLAGS,
+  });
+  const [myAdminFeatureOverride, setMyAdminFeatureOverride] =
+    useState<AdminFeatureOverrideRecord | null>(null);
   const [records, setRecordsState] = useState<AdmitCardRecord[]>([]);
   const [activeModule, setActiveModule] = useState<SchoolModule>('INTERMEDIATE');
   const [activeTab, setActiveTab] = useState<
@@ -306,6 +329,26 @@ export default function App() {
     }
   };
 
+  // Listen to browser navigation changes for /supadm route
+  useEffect(() => {
+    const syncRoute = () => setIsSuperAdminRoute(checkIsSuperAdminRoute());
+    window.addEventListener('popstate', syncRoute);
+    window.addEventListener('hashchange', syncRoute);
+    return () => {
+      window.removeEventListener('popstate', syncRoute);
+      window.removeEventListener('hashchange', syncRoute);
+    };
+  }, []);
+
+  const handleExitSuperAdminRoute = () => {
+    try {
+      window.history.pushState({}, '', '/');
+    } catch {
+      window.location.hash = '';
+    }
+    setIsSuperAdminRoute(false);
+  };
+
   // 1. Listen strictly to Firebase Auth state and resolve separate ADMIN vs TEACHER role cleanly
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
@@ -351,7 +394,7 @@ export default function App() {
 
   // 2. Role-isolated Firestore subscriptions (ADMIN, TEACHER, and CLERK never mix queries)
   useEffect(() => {
-    if (!firebaseUser || !activePortalRole) return;
+    if (isSuperAdminRoute || !firebaseUser || !activePortalRole) return;
 
     if (activePortalRole === 'ADMIN') {
       let unsubscribeStudents: (() => void) | null = null;
@@ -442,10 +485,25 @@ export default function App() {
         setOwnerClerkAssignments(list);
       });
 
+      // Register admin account login for Super Admin visibility & subscribe to live feature flags
+      registerAdminAccountLogin(firebaseUser).catch((err) => {
+        console.warn('Admin account directory sync warning:', err);
+      });
+
+      const unsubscribeGlobalFlags = subscribeToGlobalFeatureFlags((flags) => {
+        setGlobalFeatureFlags(flags);
+      });
+
+      const unsubscribeMyOverride = subscribeToMyAdminFeatureOverride(firebaseUser, (ov) => {
+        setMyAdminFeatureOverride(ov);
+      });
+
       return () => {
         if (unsubscribeStudents) unsubscribeStudents();
         if (unsubscribeOwnerAssignments) unsubscribeOwnerAssignments();
         if (unsubscribeOwnerClerks) unsubscribeOwnerClerks();
+        unsubscribeGlobalFlags();
+        unsubscribeMyOverride();
       };
     }
 
@@ -532,7 +590,39 @@ export default function App() {
       unsubscribeMyAssignments();
       unsubscribeTeacherStudents();
     };
-  }, [firebaseUser, activePortalRole]);
+  }, [isSuperAdminRoute, firebaseUser, activePortalRole]);
+
+  // Effective live feature flags for the logged-in Admin (Super Admin account is never restricted)
+  const effectiveAdminFeatures: AdminFeatureFlags = useMemo(() => {
+    if (firebaseUser && isSuperAdminUserEmail(firebaseUser.email)) {
+      return { ...DEFAULT_ADMIN_FEATURE_FLAGS };
+    }
+    if (myAdminFeatureOverride) {
+      return {
+        randomMarksGenerator: myAdminFeatureOverride.randomMarksGenerator,
+        excelDownload: myAdminFeatureOverride.excelDownload,
+        pdfDownload: myAdminFeatureOverride.pdfDownload,
+        completeZipDownload: myAdminFeatureOverride.completeZipDownload,
+        letterPadAndLifafa: myAdminFeatureOverride.letterPadAndLifafa,
+        attendanceSheet: myAdminFeatureOverride.attendanceSheet,
+        teacherClerkManagement: myAdminFeatureOverride.teacherClerkManagement,
+        bulkDeleteData: myAdminFeatureOverride.bulkDeleteData,
+      };
+    }
+    return globalFeatureFlags;
+  }, [firebaseUser, myAdminFeatureOverride, globalFeatureFlags]);
+
+  // Redirect away from any tab if Super Admin disables it in real time
+  useEffect(() => {
+    if (activePortalRole !== 'ADMIN') return;
+    if (activeTab === 'letterpad' && !effectiveAdminFeatures.letterPadAndLifafa) {
+      setActiveTab('dashboard');
+    } else if (activeTab === 'attendance' && !effectiveAdminFeatures.attendanceSheet) {
+      setActiveTab('dashboard');
+    } else if (activeTab === 'teachers' && !effectiveAdminFeatures.teacherClerkManagement) {
+      setActiveTab('dashboard');
+    }
+  }, [activePortalRole, activeTab, effectiveAdminFeatures]);
 
   // Admin-only: automatically sync assignedTeacherEmails & assignedClerkEmails on owner student documents whenever out of sync
   useEffect(() => {
@@ -1157,6 +1247,19 @@ export default function App() {
     [filteredRecords, safePage]
   );
 
+  // Dedicated /supadm Super Admin Control Panel route
+  if (isSuperAdminRoute) {
+    return (
+      <MotionConfig reducedMotion="user">
+        <SuperAdminPortal
+          firebaseUser={firebaseUser}
+          authReady={authReady}
+          onExitToMainPortal={handleExitSuperAdminRoute}
+        />
+      </MotionConfig>
+    );
+  }
+
   // Top-level screen routing with smooth GPU-composited AnimatePresence transitions
   const screenKey = !authReady
     ? 'auth-loading'
@@ -1477,6 +1580,7 @@ export default function App() {
                 </span>
               </button>
 
+              {effectiveAdminFeatures.attendanceSheet && (
               <button
                 type="button"
                 onClick={() => handleSwitchTab('attendance')}
@@ -1491,7 +1595,9 @@ export default function App() {
                   <span>Attendance Sheet (Print)</span>
                 </span>
               </button>
+              )}
 
+              {effectiveAdminFeatures.letterPadAndLifafa && (
               <button
                 type="button"
                 onClick={() => handleSwitchTab('letterpad')}
@@ -1506,7 +1612,9 @@ export default function App() {
                   <span>Letter Pad &amp; Lifafa (12th/10th)</span>
                 </span>
               </button>
+              )}
 
+              {effectiveAdminFeatures.teacherClerkManagement && (
               <button
                 type="button"
                 onClick={() => handleSwitchTab('teachers')}
@@ -1526,6 +1634,7 @@ export default function App() {
                   </span>
                 )}
               </button>
+              )}
 
               <button
                 type="button"
@@ -1596,10 +1705,12 @@ export default function App() {
 
               <PWAInstallButton variant="drawer" onAction={() => setIsDrawerOpen(false)} />
 
-              {currentModuleRecords.length > 0 && (
+              {currentModuleRecords.length > 0 &&
+                (effectiveAdminFeatures.excelDownload || effectiveAdminFeatures.pdfDownload) && (
                 <>
                   {activeModule === 'INTERMEDIATE' ? (
                     <>
+                      {effectiveAdminFeatures.excelDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1617,7 +1728,9 @@ export default function App() {
                         <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                         <span>Download 12th Excel</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.pdfDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1633,7 +1746,9 @@ export default function App() {
                         <FileText className="h-4 w-4 text-indigo-900" />
                         <span>Download 12th PDF</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.pdfDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1649,7 +1764,9 @@ export default function App() {
                         <FileText className="h-4 w-4 text-rose-700" />
                         <span>Download Absent PDF</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.excelDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1665,7 +1782,9 @@ export default function App() {
                         <FileSpreadsheet className="h-4 w-4 text-teal-700" />
                         <span>Download Absent Excel</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.pdfDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1681,7 +1800,9 @@ export default function App() {
                         <FileText className="h-4 w-4 text-purple-700" />
                         <span>Download Vocational PDF</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.excelDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1697,9 +1818,11 @@ export default function App() {
                         <FileSpreadsheet className="h-4 w-4 text-indigo-700" />
                         <span>Download Vocational Excel</span>
                       </button>
+                      )}
                     </>
                   ) : (
                     <>
+                      {effectiveAdminFeatures.excelDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1717,7 +1840,9 @@ export default function App() {
                         <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                         <span>Download 10th Excel</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.pdfDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1733,7 +1858,9 @@ export default function App() {
                         <FileText className="h-4 w-4 text-indigo-900" />
                         <span>Download 10th PDF</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.pdfDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1749,7 +1876,9 @@ export default function App() {
                         <FileText className="h-4 w-4 text-rose-700" />
                         <span>Download Matric Absent PDF</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.excelDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1765,7 +1894,9 @@ export default function App() {
                         <FileSpreadsheet className="h-4 w-4 text-teal-700" />
                         <span>Download Matric Absent Excel</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.pdfDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1781,7 +1912,9 @@ export default function App() {
                         <FileText className="h-4 w-4 text-purple-700" />
                         <span>Download Blind Sent-Up PDF</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.excelDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1797,7 +1930,9 @@ export default function App() {
                         <FileSpreadsheet className="h-4 w-4 text-indigo-700" />
                         <span>Download Blind Sent-Up Excel</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.pdfDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1813,7 +1948,9 @@ export default function App() {
                         <FileText className="h-4 w-4 text-amber-700" />
                         <span>Download Blind Absent PDF</span>
                       </button>
+                      )}
 
+                      {effectiveAdminFeatures.excelDownload && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1829,6 +1966,7 @@ export default function App() {
                         <FileSpreadsheet className="h-4 w-4 text-cyan-700" />
                         <span>Download Blind Absent Excel</span>
                       </button>
+                      )}
                     </>
                   )}
                 </>
@@ -1944,7 +2082,7 @@ export default function App() {
                 <span className="sm:hidden">Upload</span>
               </button>
 
-              {currentModuleRecords.length > 0 && (
+              {currentModuleRecords.length > 0 && effectiveAdminFeatures.bulkDeleteData && (
                 <button
                   type="button"
                   onClick={handleClearCurrentModule}
@@ -2096,6 +2234,7 @@ export default function App() {
                   <Plus className="h-3.5 w-3.5" />
                   <span>Add Student</span>
                 </button>
+                {effectiveAdminFeatures.completeZipDownload && (
                 <button
                   type="button"
                   onClick={handleDownloadAdminCompletePack}
@@ -2113,6 +2252,7 @@ export default function App() {
                       `All ${activeModule === 'INTERMEDIATE' ? '12th' : '10th'} ZIP`}
                   </span>
                 </button>
+                )}
               </div>
             </div>
 
@@ -2408,15 +2548,17 @@ export default function App() {
             codePairs={schoolCodePairs}
             onSaveCodePairs={handleSaveSchoolCodePairs}
           />
-        ) : activeTab === 'attendance' ? (
+        ) : activeTab === 'attendance' && effectiveAdminFeatures.attendanceSheet ? (
           <AttendanceSheetView
             records={records}
             activeModule={activeModule}
             onTriggerAdmitCardUpload={() => fileInputRef.current?.click()}
+            allowExcelDownload={effectiveAdminFeatures.excelDownload}
+            allowPdfDownload={effectiveAdminFeatures.pdfDownload}
           />
-        ) : activeTab === 'letterpad' ? (
+        ) : activeTab === 'letterpad' && effectiveAdminFeatures.letterPadAndLifafa ? (
           <IntermediateLetterPadView records={records} initialClassMode={activeModule} />
-        ) : activeTab === 'teachers' ? (
+        ) : activeTab === 'teachers' && effectiveAdminFeatures.teacherClerkManagement ? (
           <TeacherManagementView
             records={records}
             assignments={ownerAssignments}
@@ -2449,6 +2591,8 @@ export default function App() {
             onSetExportMode={setExportMode}
             onDeleteRecord={handleDeleteRecord}
             onTriggerAdmitCardUpload={() => fileInputRef.current?.click()}
+            allowExcelDownload={effectiveAdminFeatures.excelDownload}
+            allowPdfDownload={effectiveAdminFeatures.pdfDownload}
           />
         ) : currentModuleRecords.length === 0 ? (
           /* Single Unified Mobile-First Hero Card for the Active Module */
@@ -2879,17 +3023,35 @@ export default function App() {
       >
         {(
           [
-            { id: 'dashboard' as const, label: 'Dashboard', Icon: Building2 },
-            { id: 'register' as const, label: `Admit (${currentModuleRecords.length})`, Icon: FileText },
+            { id: 'dashboard' as const, label: 'Dashboard', Icon: Building2, visible: true },
+            {
+              id: 'register' as const,
+              label: `Admit (${currentModuleRecords.length})`,
+              Icon: FileText,
+              visible: true,
+            },
             {
               id: 'marks' as const,
               label: `Marks (${activeModule === 'INTERMEDIATE' ? '12th' : '10th'})`,
               Icon: BookOpen,
+              visible: true,
             },
-            { id: 'attendance' as const, label: 'Attendance', Icon: ClipboardCheck },
-            { id: 'teachers' as const, label: 'Staff', Icon: Users },
+            {
+              id: 'attendance' as const,
+              label: 'Attendance',
+              Icon: ClipboardCheck,
+              visible: effectiveAdminFeatures.attendanceSheet,
+            },
+            {
+              id: 'teachers' as const,
+              label: 'Staff',
+              Icon: Users,
+              visible: effectiveAdminFeatures.teacherClerkManagement,
+            },
           ] as const
-        ).map(({ id, label, Icon }) => {
+        )
+          .filter((item) => item.visible)
+          .map(({ id, label, Icon }) => {
           const isActive = activeTab === id;
           return (
             <button
@@ -3172,6 +3334,7 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSwitchTab={handleSwitchTab}
+        allowRandomMarksGenerator={effectiveAdminFeatures.randomMarksGenerator}
         onUpdateRecords={(updated) => {
           setRecordsState(updated);
           if (auth.currentUser && activePortalRole === 'ADMIN') {

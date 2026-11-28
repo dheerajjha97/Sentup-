@@ -27,9 +27,15 @@ service cloud.firestore {
       return request.auth.token.email.lower();
     }
 
-    // Pure token-only admin check (safe in allow list without get/exists)
+    // Exclusive Super Admin Portal (/supadm) controller
+    function isFeatureSuperAdmin() {
+      return hasVerifiedEmail() && callerEmail() == 'nehajha.gyanora@gmail.com';
+    }
+
+    // Pure token-only super admin check (safe in allow list without get/exists)
     function isSuperAdminEmail() {
-      return hasVerifiedEmail() && callerEmail() == 'jhadheeraj97@gmail.com';
+      return hasVerifiedEmail()
+        && (callerEmail() == 'jhadheeraj97@gmail.com' || callerEmail() == 'nehajha.gyanora@gmail.com');
     }
 
     function isAdmin() {
@@ -165,6 +171,77 @@ service cloud.firestore {
         && data.active is bool
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
+    }
+
+    function isValidFeatureFlagsFields(data) {
+      return data.randomMarksGenerator is bool
+        && data.excelDownload is bool
+        && data.pdfDownload is bool
+        && data.completeZipDownload is bool
+        && data.letterPadAndLifafa is bool
+        && data.attendanceSheet is bool
+        && data.teacherClerkManagement is bool
+        && data.bulkDeleteData is bool;
+    }
+
+    function isValidAppFeatureConfig(data) {
+      return data.keys().hasAll([
+          'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData', 'updatedByUid', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData', 'updatedByUid', 'updatedAt'
+        ])
+        && isValidFeatureFlagsFields(data)
+        && data.updatedByUid is string
+        && data.updatedByUid.size() >= 1
+        && data.updatedByUid.size() <= 128
+        && data.updatedByUid.matches('^[a-zA-Z0-9_-]+$')
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminFeatureOverride(data) {
+      return data.keys().hasAll([
+          'adminEmail', 'note',
+          'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'adminEmail', 'note',
+          'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData',
+          'createdAt', 'updatedAt'
+        ])
+        && data.adminEmail is string
+        && data.adminEmail.size() >= 3
+        && data.adminEmail.size() <= 160
+        && data.note is string
+        && data.note.size() <= 200
+        && isValidFeatureFlagsFields(data)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminAccount(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'lastLoginAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'createdAt', 'lastLoginAt'])
+        && data.uid is string
+        && data.uid.size() >= 1
+        && data.uid.size() <= 128
+        && data.uid.matches('^[a-zA-Z0-9_-]+$')
+        && data.email is string
+        && data.email.size() >= 3
+        && data.email.size() <= 160
+        && data.displayName is string
+        && data.displayName.size() <= 120
+        && data.createdAt is timestamp
+        && data.lastLoginAt is timestamp;
     }
 
     function isStudentAssignedTeacher(res) {
@@ -334,6 +411,109 @@ service cloud.firestore {
       allow delete: if hasVerifiedEmail()
         && isValidId(assignmentId)
         && (resource.data.ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /appFeatureConfig/{configId} {
+      // Non-PII global boolean feature flags document ('global') readable by verified signed-in users
+      allow get: if hasVerifiedEmail()
+        && isValidId(configId)
+        && configId == 'global';
+
+      allow list: if false;
+
+      allow create: if isFeatureSuperAdmin()
+        && isValidId(configId)
+        && configId == 'global'
+        && isValidAppFeatureConfig(request.resource.data)
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if isFeatureSuperAdmin()
+        && isValidId(configId)
+        && configId == 'global'
+        && isValidAppFeatureConfig(request.resource.data)
+        && request.resource.data.updatedByUid == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData', 'updatedByUid', 'updatedAt'
+        ]);
+
+      allow delete: if isFeatureSuperAdmin()
+        && isValidId(configId);
+    }
+
+    match /adminFeatureOverrides/{overrideId} {
+      // Pillar 6: PII Isolation - only the targeted admin email or Super Admin nehajha.gyanora@gmail.com
+      allow get: if hasVerifiedEmail()
+        && isValidId(overrideId)
+        && (
+          resource == null
+          || resource.data.adminEmail == callerEmail()
+          || isFeatureSuperAdmin()
+        );
+
+      // Pillar 8: Zero get()/exists() in allow list
+      allow list: if hasVerifiedEmail()
+        && (
+          resource.data.adminEmail == callerEmail()
+          || isFeatureSuperAdmin()
+        );
+
+      allow create: if isFeatureSuperAdmin()
+        && isValidId(overrideId)
+        && isValidAdminFeatureOverride(request.resource.data)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if isFeatureSuperAdmin()
+        && isValidId(overrideId)
+        && isValidAdminFeatureOverride(request.resource.data)
+        && request.resource.data.adminEmail == resource.data.adminEmail
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'note', 'randomMarksGenerator', 'excelDownload', 'pdfDownload',
+          'completeZipDownload', 'letterPadAndLifafa', 'attendanceSheet',
+          'teacherClerkManagement', 'bulkDeleteData', 'updatedAt'
+        ]);
+
+      allow delete: if isFeatureSuperAdmin()
+        && isValidId(overrideId);
+    }
+
+    match /adminAccounts/{accountUid} {
+      // Pillar 6: PII Isolation - admin can only read/write own profile; only Super Admin can list all admins
+      allow get: if hasVerifiedEmail()
+        && isValidId(accountUid)
+        && (accountUid == request.auth.uid || isFeatureSuperAdmin());
+
+      allow list: if isFeatureSuperAdmin();
+
+      allow create: if hasVerifiedEmail()
+        && isValidId(accountUid)
+        && accountUid == request.auth.uid
+        && isValidAdminAccount(request.resource.data)
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == callerEmail()
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.lastLoginAt == request.time;
+
+      allow update: if hasVerifiedEmail()
+        && isValidId(accountUid)
+        && accountUid == request.auth.uid
+        && isValidAdminAccount(request.resource.data)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == callerEmail()
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.lastLoginAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email', 'displayName', 'lastLoginAt'
+        ]);
+
+      allow delete: if isFeatureSuperAdmin()
+        && isValidId(accountUid);
     }
   }
 }

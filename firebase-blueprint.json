@@ -229,6 +229,87 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "AppFeatureConfig": {
+      "title": "AppFeatureConfig",
+      "description": "Global Admin feature toggles controlled exclusively by the Super Admin portal (/supadm)",
+      "type": "object",
+      "properties": {
+        "randomMarksGenerator": { "type": "boolean" },
+        "excelDownload": { "type": "boolean" },
+        "pdfDownload": { "type": "boolean" },
+        "completeZipDownload": { "type": "boolean" },
+        "letterPadAndLifafa": { "type": "boolean" },
+        "attendanceSheet": { "type": "boolean" },
+        "teacherClerkManagement": { "type": "boolean" },
+        "bulkDeleteData": { "type": "boolean" },
+        "updatedByUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "randomMarksGenerator",
+        "excelDownload",
+        "pdfDownload",
+        "completeZipDownload",
+        "letterPadAndLifafa",
+        "attendanceSheet",
+        "teacherClerkManagement",
+        "bulkDeleteData",
+        "updatedByUid",
+        "updatedAt"
+      ]
+    },
+    "AdminFeatureOverride": {
+      "title": "AdminFeatureOverride",
+      "description": "Per-admin Gmail feature flag override managed exclusively by the Super Admin (/supadm)",
+      "type": "object",
+      "properties": {
+        "adminEmail": { "type": "string", "maxLength": 160 },
+        "note": { "type": "string", "maxLength": 200 },
+        "randomMarksGenerator": { "type": "boolean" },
+        "excelDownload": { "type": "boolean" },
+        "pdfDownload": { "type": "boolean" },
+        "completeZipDownload": { "type": "boolean" },
+        "letterPadAndLifafa": { "type": "boolean" },
+        "attendanceSheet": { "type": "boolean" },
+        "teacherClerkManagement": { "type": "boolean" },
+        "bulkDeleteData": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "adminEmail",
+        "note",
+        "randomMarksGenerator",
+        "excelDownload",
+        "pdfDownload",
+        "completeZipDownload",
+        "letterPadAndLifafa",
+        "attendanceSheet",
+        "teacherClerkManagement",
+        "bulkDeleteData",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminAccount": {
+      "title": "AdminAccount",
+      "description": "Registry of school admins who signed into the Admin Portal so the Super Admin can configure per-admin feature access",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 160 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLoginAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "createdAt",
+        "lastLoginAt"
+      ]
     }
   },
   "firestore": {
@@ -243,6 +324,18 @@
     "/clerkAssignments/{assignmentId}": {
       "schema": { "$ref": "#/entities/ClerkAssignment" },
       "description": "Stores School Code -> Clerk Email -> Multi-Class strictly read-only print desk permissions created by school admins."
+    },
+    "/appFeatureConfig/{configId}": {
+      "schema": { "$ref": "#/entities/AppFeatureConfig" },
+      "description": "Stores global default Admin feature flags at /appFeatureConfig/global. Readable by verified signed-in users, writable strictly by Super Admin nehajha.gyanora@gmail.com."
+    },
+    "/adminFeatureOverrides/{overrideId}": {
+      "schema": { "$ref": "#/entities/AdminFeatureOverride" },
+      "description": "Stores per-admin Gmail feature flag overrides. Readable only by the matching admin email or Super Admin nehajha.gyanora@gmail.com, writable strictly by Super Admin."
+    },
+    "/adminAccounts/{accountUid}": {
+      "schema": { "$ref": "#/entities/AdminAccount" },
+      "description": "Stores admin portal login directory entries (PII isolated to self and Super Admin nehajha.gyanora@gmail.com)."
     }
   }
 }

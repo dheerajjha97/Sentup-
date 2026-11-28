@@ -33,6 +33,7 @@ interface SettingsModalProps {
   onClose: () => void;
   onUpdateRecords: (updated: AdmitCardRecord[]) => void;
   onSwitchTab?: (tab: 'register' | 'marks' | 'analytics') => void;
+  allowRandomMarksGenerator?: boolean;
 }
 
 // Default BSEB Practical subjects for 12th Intermediate
@@ -62,8 +63,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   onUpdateRecords,
   onSwitchTab,
+  allowRandomMarksGenerator = true,
 }) => {
   const [activeTab, setActiveTab] = useState<'TAGGING' | 'RANDOM_POSTING'>('TAGGING');
+  const effectiveTab = allowRandomMarksGenerator ? activeTab : 'TAGGING';
 
   // Filter records for current module or all
   const moduleRecords = useMemo(
@@ -170,6 +173,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   // 1-Click Mass Fill Marks Engine
   const handleGenerateRandomMarks = () => {
+    if (!allowRandomMarksGenerator) {
+      setNoticeMessage('Random Marks Generator is disabled by Super Admin.');
+      return;
+    }
     if (records.length === 0) {
       setNoticeMessage('Error: No student records available to populate marks.');
       return;
@@ -549,9 +556,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <Settings className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-indigo-950">Settings & Random Marks Posting</h2>
+              <h2 className="text-base font-bold text-indigo-950">
+                {allowRandomMarksGenerator
+                  ? 'Settings & Random Marks Posting'
+                  : 'Subject Practical Tagging Settings'}
+              </h2>
               <p className="text-xs text-indigo-800">
-                Subject Tagging & 1-Click Mass Marks Generator ({activeModule === 'MATRIC' ? '10th Matric' : '12th Intermediate'})
+                {allowRandomMarksGenerator
+                  ? `Subject Tagging & 1-Click Mass Marks Generator (${activeModule === 'MATRIC' ? '10th Matric' : '12th Intermediate'})`
+                  : `Configure Practical vs Theory Subjects (${activeModule === 'MATRIC' ? '10th Matric' : '12th Intermediate'})`}
               </p>
             </div>
           </div>
@@ -570,7 +583,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             type="button"
             onClick={() => setActiveTab('TAGGING')}
             className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold transition-all ${
-              activeTab === 'TAGGING'
+              effectiveTab === 'TAGGING'
                 ? 'border-indigo-600 text-indigo-700'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
@@ -578,18 +591,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <FlaskConical className="h-4 w-4" />
             <span>Subject Practical Tagging ({uniqueSubjectsInBatch.length})</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('RANDOM_POSTING')}
-            className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold transition-all ${
-              activeTab === 'RANDOM_POSTING'
-                ? 'border-indigo-600 text-indigo-700'
-                : 'border-transparent text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Sparkles className="h-4 w-4 text-indigo-600" />
-            <span>1-Click Random Marks Generator</span>
-          </button>
+          {allowRandomMarksGenerator && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('RANDOM_POSTING')}
+              className={`flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-bold transition-all ${
+                effectiveTab === 'RANDOM_POSTING'
+                  ? 'border-indigo-600 text-indigo-700'
+                  : 'border-transparent text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sparkles className="h-4 w-4 text-indigo-600" />
+              <span>1-Click Random Marks Generator</span>
+            </button>
+          )}
         </div>
 
         {/* Modal Scrollable Body */}
@@ -625,7 +640,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {activeTab === 'TAGGING' ? (
+          {effectiveTab === 'TAGGING' ? (
             /* Tab 1: Subject Practical vs Non-Practical Tagging */
             <div className="space-y-4">
               <div className="rounded-2xl bg-indigo-50/70 border border-indigo-100 p-3.5 space-y-1">

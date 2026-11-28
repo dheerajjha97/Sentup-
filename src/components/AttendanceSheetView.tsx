@@ -30,6 +30,8 @@ interface AttendanceSheetViewProps {
   records: AdmitCardRecord[];
   activeModule: 'INTERMEDIATE' | 'MATRIC';
   onTriggerAdmitCardUpload?: () => void;
+  allowExcelDownload?: boolean;
+  allowPdfDownload?: boolean;
 }
 
 interface SubjectGroupOption {
@@ -124,6 +126,8 @@ export const AttendanceSheetView: React.FC<AttendanceSheetViewProps> = ({
   records,
   activeModule,
   onTriggerAdmitCardUpload,
+  allowExcelDownload = true,
+  allowPdfDownload = true,
 }) => {
   const [selectedClass, setSelectedClass] = useState<'INTERMEDIATE' | 'MATRIC'>(activeModule);
   const [selectedSchool, setSelectedSchool] = useState<string>('ALL');
@@ -369,6 +373,7 @@ export const AttendanceSheetView: React.FC<AttendanceSheetViewProps> = ({
               <span>Print Sheet</span>
             </button>
 
+            {allowPdfDownload && (
             <button
               type="button"
               onClick={handleDownloadPdf}
@@ -378,7 +383,9 @@ export const AttendanceSheetView: React.FC<AttendanceSheetViewProps> = ({
               <FileText className="h-3.5 w-3.5" />
               <span>Download PDF</span>
             </button>
+            )}
 
+            {allowExcelDownload && (
             <button
               type="button"
               onClick={handleDownloadExcel}
@@ -388,6 +395,7 @@ export const AttendanceSheetView: React.FC<AttendanceSheetViewProps> = ({
               <FileSpreadsheet className="h-3.5 w-3.5" />
               <span>Excel</span>
             </button>
+            )}
           </div>
         </div>
 

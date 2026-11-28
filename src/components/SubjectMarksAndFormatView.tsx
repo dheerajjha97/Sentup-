@@ -73,6 +73,8 @@ interface SubjectMarksAndFormatViewProps {
   onSetExportMode: (mode: ExportFormatMode) => void;
   onDeleteRecord?: (id: string) => void;
   onTriggerAdmitCardUpload?: () => void;
+  allowExcelDownload?: boolean;
+  allowPdfDownload?: boolean;
 }
 
 const INTER_SUBJECT_SUGGESTIONS = [
@@ -114,6 +116,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
   onSetExportMode,
   onDeleteRecord,
   onTriggerAdmitCardUpload,
+  allowExcelDownload = true,
+  allowPdfDownload = true,
 }) => {
   const [sheetTab, setSheetTab] = useState<'12TH_SENTUP' | '10TH_SENTUP' | 'CUSTOM_EXCEL'>(
     initialSheetTab ||
@@ -724,6 +728,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
         </div>
 
         {/* Row 2: Compact Paired Export Toolbar (Wraps cleanly on desktop, horizontally scrollable on mobile) */}
+        {(allowExcelDownload || allowPdfDownload) && (
         <div className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap [scrollbar-width:thin] rounded-xl border border-slate-200/80 bg-slate-50/80 px-2 py-1.5">
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 pr-0.5 whitespace-nowrap shrink-0">
             Download:
@@ -736,6 +741,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
                   12th Panji
                 </span>
+                {allowExcelDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -754,6 +760,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>Excel</span>
                 </button>
+                )}
+                {allowPdfDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -770,6 +778,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileText className="h-3 w-3" />
                   <span>PDF</span>
                 </button>
+                )}
               </div>
 
               {/* 12th Absent Pair */}
@@ -777,6 +786,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
                   Absent
                 </span>
+                {allowPdfDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -793,6 +803,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileText className="h-3 w-3" />
                   <span>PDF</span>
                 </button>
+                )}
+                {allowExcelDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -809,6 +821,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>Excel</span>
                 </button>
+                )}
               </div>
 
               {/* 12th Vocational Pair */}
@@ -816,6 +829,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
                   Vocational
                 </span>
+                {allowPdfDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -832,6 +846,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileText className="h-3 w-3" />
                   <span>PDF</span>
                 </button>
+                )}
+                {allowExcelDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -848,6 +864,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>Excel</span>
                 </button>
+                )}
               </div>
             </>
           ) : sheetTab === '10TH_SENTUP' ? (
@@ -857,6 +874,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
                   10th Panji
                 </span>
+                {allowExcelDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -875,6 +893,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>Excel</span>
                 </button>
+                )}
+                {allowPdfDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -891,6 +911,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileText className="h-3 w-3" />
                   <span>PDF</span>
                 </button>
+                )}
               </div>
 
               {/* 10th Absent Pair */}
@@ -898,6 +919,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
                   Absent
                 </span>
+                {allowPdfDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -914,6 +936,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileText className="h-3 w-3" />
                   <span>PDF</span>
                 </button>
+                )}
+                {allowExcelDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -930,6 +954,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>Excel</span>
                 </button>
+                )}
               </div>
 
               {/* 10th Blind Sent-Up Pair */}
@@ -937,6 +962,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
                   Blind Sent-Up
                 </span>
+                {allowPdfDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -953,6 +979,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileText className="h-3 w-3" />
                   <span>PDF</span>
                 </button>
+                )}
+                {allowExcelDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -969,6 +997,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>Excel</span>
                 </button>
+                )}
               </div>
 
               {/* 10th Blind Absent Pair */}
@@ -976,6 +1005,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <span className="text-[10px] font-bold text-slate-600 px-0.5 whitespace-nowrap">
                   Blind Absent
                 </span>
+                {allowPdfDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -992,6 +1022,8 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileText className="h-3 w-3" />
                   <span>PDF</span>
                 </button>
+                )}
+                {allowExcelDownload && (
                 <button
                   type="button"
                   disabled={records.length === 0}
@@ -1008,9 +1040,10 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                   <FileSpreadsheet className="h-3 w-3" />
                   <span>Excel</span>
                 </button>
+                )}
               </div>
             </>
-          ) : (
+          ) : allowExcelDownload ? (
             <button
               type="button"
               disabled={records.length === 0}
@@ -1028,8 +1061,9 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
               <FileSpreadsheet className="h-3.5 w-3.5" />
               <span>Export Excel</span>
             </button>
-          )}
+          ) : null}
         </div>
+        )}
 
         {/* School / College Details & Exam Year Bar */}
         <div className="mt-3.5 pt-3.5 border-t border-slate-200 grid grid-cols-1 gap-3 sm:grid-cols-12 sm:items-end">
@@ -2992,6 +3026,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
               Custom Excel Format (.xlsx / .csv)
             </h3>
             <div className="flex items-center gap-2">
+              {allowExcelDownload && (
               <button
                 type="button"
                 disabled={records.length === 0}
@@ -3001,6 +3036,7 @@ export const SubjectMarksAndFormatView: React.FC<SubjectMarksAndFormatViewProps>
                 <Download className="h-3.5 w-3.5" />
                 <span>Download Blank Marks Sheet</span>
               </button>
+              )}
               <button
                 type="button"
                 onClick={() => excelInputRef.current?.click()}

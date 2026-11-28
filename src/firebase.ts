@@ -997,6 +997,367 @@ export function subscribeToClerkAssignedStudents(
   );
 }
 
+export const SUPER_ADMIN_EMAIL = 'nehajha.gyanora@gmail.com';
+
+export function isSuperAdminUserEmail(email?: string | null): boolean {
+  return (email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+}
+
+export interface AdminFeatureFlags {
+  randomMarksGenerator: boolean;
+  excelDownload: boolean;
+  pdfDownload: boolean;
+  completeZipDownload: boolean;
+  letterPadAndLifafa: boolean;
+  attendanceSheet: boolean;
+  teacherClerkManagement: boolean;
+  bulkDeleteData: boolean;
+}
+
+export const DEFAULT_ADMIN_FEATURE_FLAGS: AdminFeatureFlags = {
+  randomMarksGenerator: true,
+  excelDownload: true,
+  pdfDownload: true,
+  completeZipDownload: true,
+  letterPadAndLifafa: true,
+  attendanceSheet: true,
+  teacherClerkManagement: true,
+  bulkDeleteData: true,
+};
+
+export interface AdminFeatureOverrideRecord extends AdminFeatureFlags {
+  id: string;
+  adminEmail: string;
+  note: string;
+  updatedAt?: string;
+}
+
+export interface AdminAccountRecord {
+  uid: string;
+  email: string;
+  displayName: string;
+  lastLoginAt?: string;
+}
+
+export function emailToOverrideDocId(rawEmail: string): string {
+  const normalized = rawEmail.trim().toLowerCase().slice(0, 120);
+  let hex = '';
+  for (let i = 0; i < normalized.length; i++) {
+    hex += normalized.charCodeAt(i).toString(16).padStart(2, '0');
+  }
+  return `ov_${hex}`.slice(0, 250);
+}
+
+function parseFeatureFlagsData(data?: Record<string, unknown> | null): AdminFeatureFlags {
+  if (!data) return { ...DEFAULT_ADMIN_FEATURE_FLAGS };
+  return {
+    randomMarksGenerator:
+      typeof data.randomMarksGenerator === 'boolean' ? data.randomMarksGenerator : true,
+    excelDownload: typeof data.excelDownload === 'boolean' ? data.excelDownload : true,
+    pdfDownload: typeof data.pdfDownload === 'boolean' ? data.pdfDownload : true,
+    completeZipDownload:
+      typeof data.completeZipDownload === 'boolean' ? data.completeZipDownload : true,
+    letterPadAndLifafa:
+      typeof data.letterPadAndLifafa === 'boolean' ? data.letterPadAndLifafa : true,
+    attendanceSheet: typeof data.attendanceSheet === 'boolean' ? data.attendanceSheet : true,
+    teacherClerkManagement:
+      typeof data.teacherClerkManagement === 'boolean' ? data.teacherClerkManagement : true,
+    bulkDeleteData: typeof data.bulkDeleteData === 'boolean' ? data.bulkDeleteData : true,
+  };
+}
+
+function formatFirestoreTimestamp(ts: unknown): string | undefined {
+  if (ts instanceof Timestamp) {
+    return ts.toDate().toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  return undefined;
+}
+
+export function subscribeToGlobalFeatureFlags(
+  onData: (flags: AdminFeatureFlags, updatedAt?: string) => void,
+  onError?: (message: string) => void
+): () => void {
+  const docRef = doc(db, 'appFeatureConfig', 'global');
+  return onSnapshot(
+    docRef,
+    (snap) => {
+      if (!snap.exists()) {
+        onData({ ...DEFAULT_ADMIN_FEATURE_FLAGS }, undefined);
+        return;
+      }
+      const data = snap.data() as Record<string, unknown>;
+      onData(parseFeatureFlagsData(data), formatFirestoreTimestamp(data.updatedAt));
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.GET, 'appFeatureConfig/global');
+      }
+    }
+  );
+}
+
+export async function saveGlobalFeatureFlags(flags: AdminFeatureFlags): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !isSuperAdminUserEmail(currentUser.email)) {
+    throw new Error('Unauthorized: Only Super Admin can update feature controls.');
+  }
+
+  const path = 'appFeatureConfig/global';
+  const docRef = doc(db, 'appFeatureConfig', 'global');
+  const payload = {
+    randomMarksGenerator: Boolean(flags.randomMarksGenerator),
+    excelDownload: Boolean(flags.excelDownload),
+    pdfDownload: Boolean(flags.pdfDownload),
+    completeZipDownload: Boolean(flags.completeZipDownload),
+    letterPadAndLifafa: Boolean(flags.letterPadAndLifafa),
+    attendanceSheet: Boolean(flags.attendanceSheet),
+    teacherClerkManagement: Boolean(flags.teacherClerkManagement),
+    bulkDeleteData: Boolean(flags.bulkDeleteData),
+    updatedByUid: clampStr(currentUser.uid, 128),
+    updatedAt: serverTimestamp(),
+  };
+
+  let exists = false;
+  try {
+    const snap = await getDoc(docRef);
+    exists = snap.exists();
+  } catch {
+    exists = false;
+  }
+
+  if (exists) {
+    try {
+      await updateDoc(docRef, payload);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  } else {
+    try {
+      await setDoc(docRef, payload);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+}
+
+export function subscribeToMyAdminFeatureOverride(
+  user: User,
+  onData: (override: AdminFeatureOverrideRecord | null) => void
+): () => void {
+  const email = (user.email || '').trim().toLowerCase();
+  if (!email) {
+    onData(null);
+    return () => {};
+  }
+  const q = query(collection(db, 'adminFeatureOverrides'), where('adminEmail', '==', email));
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      if (snapshot.empty) {
+        onData(null);
+        return;
+      }
+      const d = snapshot.docs[0];
+      const data = d.data() as Record<string, unknown>;
+      onData({
+        id: d.id,
+        adminEmail: String(data.adminEmail || email).toLowerCase(),
+        note: String(data.note || ''),
+        ...parseFeatureFlagsData(data),
+        updatedAt: formatFirestoreTimestamp(data.updatedAt),
+      });
+    },
+    (error) => {
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.LIST, 'adminFeatureOverrides');
+      }
+    }
+  );
+}
+
+export function subscribeToAllAdminFeatureOverrides(
+  onData: (overrides: AdminFeatureOverrideRecord[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  return onSnapshot(
+    collection(db, 'adminFeatureOverrides'),
+    (snapshot) => {
+      const list: AdminFeatureOverrideRecord[] = snapshot.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        return {
+          id: d.id,
+          adminEmail: String(data.adminEmail || '').toLowerCase(),
+          note: String(data.note || ''),
+          ...parseFeatureFlagsData(data),
+          updatedAt: formatFirestoreTimestamp(data.updatedAt),
+        };
+      });
+      list.sort((a, b) => a.adminEmail.localeCompare(b.adminEmail));
+      onData(list);
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.LIST, 'adminFeatureOverrides');
+      }
+    }
+  );
+}
+
+export async function saveAdminFeatureOverride(
+  rawAdminEmail: string,
+  flags: AdminFeatureFlags,
+  note = ''
+): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !isSuperAdminUserEmail(currentUser.email)) {
+    throw new Error('Unauthorized: Only Super Admin can manage per-admin controls.');
+  }
+
+  const cleanEmail = clampStr(rawAdminEmail, 160).toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    throw new Error('Please enter a valid Admin Gmail address.');
+  }
+
+  const docId = emailToOverrideDocId(cleanEmail);
+  const path = `adminFeatureOverrides/${docId}`;
+  const docRef = doc(db, 'adminFeatureOverrides', docId);
+
+  const mutableFields = {
+    note: clampStr(note, 200),
+    randomMarksGenerator: Boolean(flags.randomMarksGenerator),
+    excelDownload: Boolean(flags.excelDownload),
+    pdfDownload: Boolean(flags.pdfDownload),
+    completeZipDownload: Boolean(flags.completeZipDownload),
+    letterPadAndLifafa: Boolean(flags.letterPadAndLifafa),
+    attendanceSheet: Boolean(flags.attendanceSheet),
+    teacherClerkManagement: Boolean(flags.teacherClerkManagement),
+    bulkDeleteData: Boolean(flags.bulkDeleteData),
+    updatedAt: serverTimestamp(),
+  };
+
+  let exists = false;
+  try {
+    const snap = await getDoc(docRef);
+    exists = snap.exists();
+  } catch {
+    exists = false;
+  }
+
+  if (exists) {
+    try {
+      await updateDoc(docRef, mutableFields);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  } else {
+    try {
+      await setDoc(docRef, {
+        adminEmail: cleanEmail,
+        ...mutableFields,
+        createdAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+}
+
+export async function deleteAdminFeatureOverride(overrideDocId: string): Promise<void> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !isSuperAdminUserEmail(currentUser.email)) {
+    throw new Error('Unauthorized: Only Super Admin can delete per-admin overrides.');
+  }
+  const cleanId = sanitizeDocId(overrideDocId);
+  const path = `adminFeatureOverrides/${cleanId}`;
+  try {
+    await deleteDoc(doc(db, 'adminFeatureOverrides', cleanId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function registerAdminAccountLogin(user: User): Promise<void> {
+  const cleanEmail = clampStr(user.email || '', 160).toLowerCase();
+  if (!cleanEmail || !user.uid) return;
+  const docId = sanitizeDocId(user.uid);
+  const path = `adminAccounts/${docId}`;
+  const docRef = doc(db, 'adminAccounts', docId);
+  const displayName = clampStr(user.displayName || cleanEmail.split('@')[0] || 'School Admin', 120);
+
+  let exists = false;
+  try {
+    const snap = await getDoc(docRef);
+    exists = snap.exists();
+  } catch {
+    exists = false;
+  }
+
+  if (exists) {
+    try {
+      await updateDoc(docRef, {
+        email: cleanEmail,
+        displayName,
+        lastLoginAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.warn('Admin login timestamp update skipped:', error);
+    }
+  } else {
+    try {
+      await setDoc(docRef, {
+        uid: clampStr(user.uid, 128),
+        email: cleanEmail,
+        displayName,
+        createdAt: serverTimestamp(),
+        lastLoginAt: serverTimestamp(),
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  }
+}
+
+export function subscribeToAllAdminAccounts(
+  onData: (accounts: AdminAccountRecord[]) => void,
+  onError?: (message: string) => void
+): () => void {
+  return onSnapshot(
+    collection(db, 'adminAccounts'),
+    (snapshot) => {
+      const list = snapshot.docs.map((d) => {
+        const data = d.data() as Record<string, unknown>;
+        const rawTs = data.lastLoginAt instanceof Timestamp ? data.lastLoginAt.toMillis() : 0;
+        return {
+          uid: String(data.uid || d.id),
+          email: String(data.email || '').toLowerCase(),
+          displayName: String(data.displayName || ''),
+          lastLoginAt: formatFirestoreTimestamp(data.lastLoginAt),
+          _sortMs: rawTs,
+        };
+      });
+      list.sort((a, b) => b._sortMs - a._sortMs);
+      onData(list.map(({ _sortMs: _omit, ...rest }) => rest));
+    },
+    (error) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (onError) onError(msg);
+      if (auth.currentUser) {
+        handleFirestoreError(error, OperationType.LIST, 'adminAccounts');
+      }
+    }
+  );
+}
+
 export async function signInWithGooglePopup(): Promise<User> {
   const result = await signInWithPopup(auth, googleProvider);
   return result.user;
@@ -1008,4 +1369,5 @@ export async function signOutFromFirebase(): Promise<void> {
 
 export { onAuthStateChanged };
 export type { User };
+
 
